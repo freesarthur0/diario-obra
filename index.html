@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diário de Obra</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="theme-color" content="#1f4e79">
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --txt:#1c2430; --muted:#6a7280; --linha:#e2e6ea;
+    --pri:#1f4e79; --pri2:#e8eff6;
+    --ok:#1e7a46; --ok2:#e5f3eb; --warn:#9a5b00; --warn2:#fdf2df; --err:#b42318; --err2:#fdecea;
+    --raio:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  button,input,select,textarea{font:inherit;color:inherit}
+  h1,h2,h3{margin:0 0 .6rem;line-height:1.2}
+  h2{font-size:1.15rem} h3{font-size:1rem}
+  .muted{color:var(--muted)} .peq{font-size:.85rem}
+  .topo{position:sticky;top:0;z-index:5;background:var(--pri);color:#fff;padding:.7rem 1rem;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+  .marca{font-weight:700;letter-spacing:.2px}
+  .usuario{font-size:.9rem;display:flex;gap:.8rem;align-items:center}
+  .usuario button{background:none;border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:8px;padding:.25rem .6rem;cursor:pointer}
+  .abas{display:flex;gap:.25rem;background:#fff;border-bottom:1px solid var(--linha);padding:0 .5rem;overflow-x:auto;position:sticky;top:48px;z-index:4}
+  .abas button{background:none;border:0;border-bottom:3px solid transparent;padding:.75rem .6rem;cursor:pointer;color:var(--muted);white-space:nowrap;font-weight:600}
+  .abas button.ativa{color:var(--pri);border-bottom-color:var(--pri)}
+  .abas .cont{background:var(--warn2);color:var(--warn);border-radius:99px;padding:0 .45rem;font-size:.78rem;margin-left:.25rem}
+  main{max-width:920px;margin:0 auto;padding:1rem}
+  .card{background:var(--card);border:1px solid var(--linha);border-radius:var(--raio);padding:1rem;margin-bottom:1rem}
+  label{display:block;font-size:.85rem;color:var(--muted);margin:0 0 .25rem;font-weight:600}
+  input,select,textarea{width:100%;padding:.6rem .7rem;border:1px solid var(--linha);border-radius:9px;background:#fff;min-height:44px}
+  textarea{min-height:90px;resize:vertical}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--pri2);border-color:var(--pri)}
+  .campo{margin-bottom:.85rem}
+  .grade{display:grid;gap:.75rem;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;border:1px solid var(--linha);background:#fff;border-radius:9px;padding:.55rem .95rem;min-height:42px;cursor:pointer;font-weight:600}
+  .btn.pri{background:var(--pri);border-color:var(--pri);color:#fff}
+  .btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+  .btn.perigo{color:var(--err);border-color:#f1c7c2}
+  .btn.cheio{width:100%}
+  .btn:disabled{opacity:.55;cursor:default}
+  .linkbtn{background:none;border:0;color:var(--pri);cursor:pointer;padding:0;font-weight:600}
+  .acoes{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem}
+  .chips{display:flex;flex-wrap:wrap;gap:.45rem}
+  .chip{display:inline-flex;align-items:center;gap:.35rem;border:1px solid var(--linha);border-radius:99px;padding:.4rem .8rem;cursor:pointer;background:#fff;color:var(--txt);font-size:.92rem;margin:0;font-weight:500}
+  .chip input{display:none}
+  .chip.sel{background:var(--pri2);border-color:var(--pri);color:var(--pri)}
+  .mat{display:grid;grid-template-columns:80px 82px 1fr 40px;gap:.4rem;margin-bottom:.4rem}
+  .mat button{border:0;background:none;color:var(--muted);font-size:1.3rem;cursor:pointer}
+  @media (max-width:560px){
+    .mat{grid-template-columns:80px 1fr 36px;padding-bottom:.5rem;border-bottom:1px dashed var(--linha)}
+    .mat [data-k=descricao]{grid-column:1/-1;order:4}
+    .mat-cab{display:none!important}
+  }
+  .tabela table.larga{min-width:600px}
+  .total{background:var(--pri2);color:var(--pri);border-radius:9px;padding:.6rem .8rem;font-weight:600}
+  .fotos{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:.5rem;margin-top:.5rem}
+  .foto{position:relative;aspect-ratio:1;border-radius:9px;overflow:hidden;background:#e9ecef;cursor:pointer}
+  .foto img{width:100%;height:100%;object-fit:cover;display:block}
+  .foto .x{position:absolute;top:4px;right:4px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;line-height:1}
+  .item{display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--linha);border-radius:var(--raio);padding:.8rem 1rem;margin-bottom:.55rem;cursor:pointer}
+  .item:hover{border-color:#c9d3dd}
+  .item .l1,.item .l2{display:flex;justify-content:space-between;gap:.75rem;align-items:center}
+  .item .l2{margin-top:.2rem;font-size:.88rem;color:var(--muted)}
+  .tag{display:inline-block;border-radius:99px;padding:.1rem .55rem;font-size:.78rem;font-weight:700;white-space:nowrap}
+  .t-pendente{background:var(--warn2);color:var(--warn)}
+  .t-aprovado{background:var(--ok2);color:var(--ok)}
+  .t-reprovado{background:var(--err2);color:var(--err)}
+  .t-cobrado{background:var(--pri2);color:var(--pri)}
+  .t-acobrar{background:#f0f1f3;color:var(--muted)}
+  .filtros{display:grid;gap:.5rem;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end}
+  table{width:100%;border-collapse:collapse;font-size:.92rem}
+  th,td{padding:.5rem .45rem;border-bottom:1px solid var(--linha);text-align:left;vertical-align:top}
+  th{font-size:.8rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+  td.n,th.n{text-align:right;white-space:nowrap}
+  tfoot td{font-weight:700;border-bottom:0}
+  .tabela{overflow-x:auto}
+  .info{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.75rem}
+  .info div span{display:block;font-size:.8rem;color:var(--muted);font-weight:600}
+  .aviso{border-radius:9px;padding:.65rem .8rem;margin-bottom:.8rem}
+  .aviso.err{background:var(--err2);color:var(--err)}
+  .aviso.warn{background:var(--warn2);color:var(--warn)}
+  .centro{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1rem}
+  .login{width:100%;max-width:380px}
+  .login .marca{color:var(--pri);font-size:1.4rem;margin-bottom:.2rem}
+  .linha{display:flex;justify-content:space-between;align-items:center;gap:.75rem;padding:.6rem 0;border-bottom:1px solid var(--linha)}
+  .linha:last-child{border-bottom:0}
+  .linha select{width:auto;min-height:36px;padding:.3rem .5rem}
+  .vazio{text-align:center;color:var(--muted);padding:2rem 1rem}
+  #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:50;display:none;background:#1c2430;color:#fff;padding:.7rem 1rem;border-radius:10px;max-width:90vw}
+  #toast.err{background:var(--err)}
+  #lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:60;display:none;align-items:center;justify-content:center;padding:1rem}
+  #lightbox img{max-width:100%;max-height:100%;border-radius:6px}
+  #print-area{display:none}
+  @media print{
+    body{background:#fff}
+    #app,#toast,#lightbox{display:none!important}
+    #print-area{display:block;font-size:11pt;color:#000}
+    #print-area h1{font-size:16pt} #print-area h2{font-size:13pt;margin-top:1rem}
+    #print-area table{font-size:9.5pt} #print-area th{color:#333}
+    #print-area .pf{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+    #print-area .pf img{width:100%;height:180px;object-fit:cover;border-radius:4px}
+    @page{margin:14mm}
+  }
+</style>
+</head>
+<body>
+<div id="app"><div class="centro muted">Carregando…</div></div>
+<div id="toast"></div>
+<div id="lightbox"><img alt=""></div>
+<div id="print-area"></div>
+
+<script type="module">
+/* ================== CONFIGURAÇÃO ================== */
+const SUPABASE_URL = 'https://uprcsejmjusyknfbogiy.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_adtdrTFpsu958IKvec4vZA_8IGMSlnZ'; // chave pública (pode ficar no app)
+const SUPABASE_JS  = window.SUPABASE_JS_URL || 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+const XLSX_JS      = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+const UNIDADES = ['un','m','cx','pct','rolo','kg','L'];
+/* ================================================== */
+
+const { createClient } = await import(SUPABASE_JS);
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $  = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtMin = m => { m = Math.round(m || 0); return `${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}`; };
+const fmtData = d => d ? d.split('-').reverse().join('/') : '';
+const hoje = () => new Date().toLocaleDateString('en-CA');
+const toMin = t => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h*60 + m; };
+const hhmm = t => t ? t.slice(0,5) : '';
+const STATUS = { pendente:'Pendente', aprovado:'Aprovado', reprovado:'Reprovado' };
+const tagStatus = s => `<span class="tag t-${s}">${STATUS[s]}</span>`;
+const tagCobr = c => c ? `<span class="tag t-cobrado">Cobrado</span>` : `<span class="tag t-acobrar">A cobrar</span>`;
+
+const S = { session:null, perfil:null, clientes:[], perfis:[], aba:null, voltar:null,
+  filtros:{ cliente:'', status:'', cobranca:'', tecnico:'', de:'', ate:'' },
+  rel:{ cliente:'', status:'aprovado', cobranca:'a_cobrar', de:'', ate:'' } };
+const ehAdmin = () => S.perfil?.papel === 'admin';
+const app = $('#app');
+
+function toast(msg, err = false){
+  const t = $('#toast'); t.textContent = msg; t.className = err ? 'err' : ''; t.style.display = 'block';
+  clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', err ? 5000 : 2600);
+}
+function falha(e){ console.error(e); toast(traduzErro(e?.message || String(e)), true); }
+function traduzErro(m){
+  if (/Invalid login credentials/i.test(m)) return 'E-mail ou senha incorretos.';
+  if (/Email not confirmed/i.test(m)) return 'Confirme seu e-mail antes de entrar.';
+  if (/User already registered/i.test(m)) return 'Este e-mail já tem cadastro.';
+  if (/Password should be/i.test(m)) return 'A senha precisa ter pelo menos 6 caracteres.';
+  if (/row-level security|permission denied/i.test(m)) return 'Você não tem permissão para isso.';
+  if (/horario_valido/.test(m)) return 'O horário de fim precisa ser depois do início.';
+  if (/intervalo_valido/.test(m)) return 'Confira o intervalo: precisa estar dentro do horário de trabalho.';
+  if (/duplicate key.*clientes_nome/i.test(m)) return 'Já existe um cliente com esse nome.';
+  return m;
+}
+async function q(p){ const { data, error } = await p; if (error) throw error; return data; }
+
+$('#lightbox').onclick = () => $('#lightbox').style.display = 'none';
+function abrirFoto(url){ const lb = $('#lightbox'); $('img', lb).src = url; lb.style.display = 'flex'; }
+
+/* ================== AUTENTICAÇÃO ================== */
+sb.auth.onAuthStateChange((ev, session) => {
+  if (ev === 'PASSWORD_RECOVERY') return setTimeout(telaNovaSenha, 0);
+  if (ev === 'TOKEN_REFRESHED' || ev === 'USER_UPDATED') { S.session = session; return; }
+  setTimeout(() => iniciar(session), 0);
+});
+
+async function iniciar(session){
+  S.session = session;
+  if (!session) return telaLogin();
+  try {
+    S.perfil = await q(sb.from('perfis').select('*').eq('id', session.user.id).maybeSingle());
+    if (!S.perfil || !S.perfil.ativo) return telaAguardando();
+    await carregarBase();
+    montarShell();
+    irPara(ehAdmin() ? 'diarios' : 'novo');
+  } catch (e) { falha(e); telaLogin(); }
+}
+async function carregarBase(){
+  [S.clientes, S.perfis] = await Promise.all([
+    q(sb.from('clientes').select('*').order('nome')),
+    q(sb.from('perfis').select('*').order('nome')),
+  ]);
+}
+
+function telaLogin(modo = 'entrar'){
+  const cad = modo === 'cadastro', rec = modo === 'recuperar';
+  app.innerHTML = `
+  <div class="centro"><form class="card login" id="f">
+    <div class="marca">Diário de Obra</div>
+    <p class="muted" style="margin-top:0">${cad ? 'Criar conta' : rec ? 'Recuperar senha' : 'Entre com seu e-mail e senha'}</p>
+    ${cad ? `<div class="campo"><label>Nome</label><input name="nome" required autocomplete="name"></div>` : ''}
+    <div class="campo"><label>E-mail</label><input name="email" type="email" required autocomplete="email"></div>
+    ${rec ? '' : `<div class="campo"><label>Senha</label><input name="senha" type="password" required minlength="6" autocomplete="${cad ? 'new-password' : 'current-password'}"></div>`}
+    <button class="btn pri cheio">${cad ? 'Criar conta' : rec ? 'Enviar link' : 'Entrar'}</button>
+    <div class="acoes" style="justify-content:space-between;margin-top:1rem">
+      ${modo !== 'entrar' ? `<button type="button" class="linkbtn" data-m="entrar">Voltar para o login</button>` :
+        `<button type="button" class="linkbtn" data-m="cadastro">Criar conta</button>
+         <button type="button" class="linkbtn" data-m="recuperar">Esqueci a senha</button>`}
+    </div>
+  </form></div>`;
+  $$('[data-m]').forEach(b => b.onclick = () => telaLogin(b.dataset.m));
+  $('#f').onsubmit = async ev => {
+    ev.preventDefault();
+    const fd = Object.fromEntries(new FormData(ev.target)); const btn = $('button.pri', ev.target); btn.disabled = true;
+    try {
+      if (cad) {
+        const { data, error } = await sb.auth.signUp({ email: fd.email.trim(), password: fd.senha,
+          options: { data: { nome: fd.nome.trim() }, emailRedirectTo: location.origin + location.pathname } });
+        if (error) throw error;
+        if (!data.session) { toast('Conta criada. Confira seu e-mail para confirmar.'); telaLogin(); }
+      } else if (rec) {
+        const { error } = await sb.auth.resetPasswordForEmail(fd.email.trim(), { redirectTo: location.origin + location.pathname });
+        if (error) throw error; toast('Se o e-mail existir, enviamos um link.'); telaLogin();
+      } else {
+        const { error } = await sb.auth.signInWithPassword({ email: fd.email.trim(), password: fd.senha });
+        if (error) throw error;
+      }
+    } catch (e) { falha(e); } finally { btn.disabled = false; }
+  };
+}
+function telaNovaSenha(){
+  app.innerHTML = `<div class="centro"><form class="card login" id="f">
+    <div class="marca">Nova senha</div>
+    <div class="campo"><label>Nova senha</label><input name="senha" type="password" minlength="6" required></div>
+    <button class="btn pri cheio">Salvar</button></form></div>`;
+  $('#f').onsubmit = async ev => { ev.preventDefault();
+    const { error } = await sb.auth.updateUser({ password: new FormData(ev.target).get('senha') });
+    if (error) return falha(error); toast('Senha alterada.'); iniciar((await sb.auth.getSession()).data.session); };
+}
+function telaAguardando(){
+  app.innerHTML = `<div class="centro"><div class="card login">
+    <div class="marca">Diário de Obra</div>
+    <p>Olá${S.perfil ? ', ' + esc(S.perfil.nome) : ''}! Sua conta foi criada e está <b>aguardando liberação</b> do administrador.</p>
+    <p class="muted peq">Assim que for liberada, toque em "Tentar de novo".</p>
+    <div class="acoes"><button class="btn pri" id="de-novo">Tentar de novo</button><button class="btn" id="sair">Sair</button></div>
+  </div></div>`;
+  $('#de-novo').onclick = async () => iniciar((await sb.auth.getSession()).data.session);
+  $('#sair').onclick = () => sb.auth.signOut();
+}
+
+/* ================== ESTRUTURA ================== */
+function montarShell(){
+  const abas = ehAdmin()
+    ? [['diarios','Diários'],['novo','Novo'],['relatorio','Relatório'],['cadastros','Cadastros']]
+    : [['novo','Novo diário'],['meus','Meus diários']];
+  app.innerHTML = `
+    <header class="topo"><div class="marca">Diário de Obra</div>
+      <div class="usuario"><span>${esc(S.perfil.nome)}</span><button id="sair">Sair</button></div></header>
+    <nav class="abas">${abas.map(([k,t]) => `<button data-aba="${k}">${t}</button>`).join('')}</nav>
+    <main id="conteudo"></main>`;
+  $('#sair').onclick = () => sb.auth.signOut();
+  $$('[data-aba]').forEach(b => b.onclick = () => irPara(b.dataset.aba));
+  atualizarContador();
+}
+async function atualizarContador(){
+  if (!ehAdmin()) return;
+  const { count } = await sb.from('diarios').select('id', { count:'exact', head:true }).eq('status','pendente');
+  const b = $('[data-aba="diarios"]'); if (b) b.innerHTML = `Diários${count ? `<span class="cont">${count}</span>` : ''}`;
+}
+function irPara(aba, ...args){
+  S.aba = aba;
+  $$('[data-aba]').forEach(b => b.classList.toggle('ativa', b.dataset.aba === aba));
+  window.scrollTo(0,0);
+  const c = $('#conteudo'); c.innerHTML = '<div class="vazio">Carregando…</div>';
+  const telas = { novo: telaForm, meus: telaLista, diarios: telaLista, relatorio: telaRelatorio, cadastros: telaCadastros, detalhe: telaDetalhe, editar: telaForm };
+  Promise.resolve(telas[aba](c, ...args)).catch(e => { falha(e); c.innerHTML = '<div class="vazio">Não foi possível carregar.</div>'; });
+}
+
+/* ================== FORMULÁRIO DO DIÁRIO ================== */
+async function telaForm(c, diario = null){
+  const ed = !!diario;
+  const ativos = S.perfis.filter(p => p.ativo);
+  const clientes = S.clientes.filter(x => !x.finalizado || x.id === diario?.cliente_id);
+  let tecSel = new Set(ed ? diario._tecnicos : [S.perfil.id]);
+  let materiais = ed ? diario._materiais.map(m => ({...m})) : [{ quantidade:'', unidade:'un', descricao:'' }];
+  let fotosExist = ed ? [...diario._fotos] : [];
+  const fotosRemovidas = [];
+  let fotosNovas = [];
+
+  c.innerHTML = `
+  <form id="fd">
+    ${ed ? `<button type="button" class="linkbtn" id="voltar">← Voltar</button><h2 style="margin-top:.6rem">Editar diário</h2>` : '<h2>Novo diário de obra</h2>'}
+    ${ed && diario.status === 'reprovado' && !ehAdmin() ? `<div class="aviso err"><b>Reprovado:</b> ${esc(diario.motivo_reprovacao || 'sem motivo informado')}. Corrija e salve para reenviar.</div>` : ''}
+    ${ed && diario.status === 'aprovado' ? `<div class="aviso warn">Este diário já foi aprovado.</div>` : ''}
+    <div class="card">
+      <div class="grade">
+        <div class="campo"><label>Data</label><input type="date" name="data" required value="${ed ? diario.data : hoje()}"></div>
+        <div class="campo"><label>Cliente</label>
+          <select name="cliente_id" required><option value="">Selecione…</option>
+            ${clientes.map(x => `<option value="${x.id}" ${diario?.cliente_id === x.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}
+          </select>${!clientes.length ? `<div class="muted peq">Nenhum cliente cadastrado. ${ehAdmin() ? 'Cadastre em "Cadastros".' : 'Peça ao administrador.'}</div>` : ''}</div>
+      </div>
+      <div class="campo"><label>Técnico(s)</label><div class="chips" id="chips"></div></div>
+    </div>
+    <div class="card">
+      <div class="grade">
+        <div class="campo"><label>Início</label><input type="time" name="hora_inicio" required value="${hhmm(diario?.hora_inicio)}"></div>
+        <div class="campo"><label>Fim</label><input type="time" name="hora_fim" required value="${hhmm(diario?.hora_fim)}"></div>
+        <div class="campo"><label>Intervalo – início</label><input type="time" name="intervalo_inicio" value="${hhmm(diario?.intervalo_inicio)}"></div>
+        <div class="campo"><label>Intervalo – fim</label><input type="time" name="intervalo_fim" value="${hhmm(diario?.intervalo_fim)}"></div>
+      </div>
+      <div class="total" id="total">Preencha início e fim</div>
+    </div>
+    <div class="card">
+      <div class="campo"><label>Serviço executado</label><textarea name="servico" required placeholder="Descreva o que foi feito">${esc(diario?.servico)}</textarea></div>
+      <div class="campo" style="margin:0"><label>Observações (opcional)</label><textarea name="observacoes" style="min-height:60px">${esc(diario?.observacoes)}</textarea></div>
+    </div>
+    <div class="card">
+      <h3>Material utilizado</h3>
+      <div class="mat mat-cab muted peq" style="margin-bottom:.2rem"><span>Qtd.</span><span>Un.</span><span>Descrição</span><span></span></div>
+      <div id="mats"></div>
+      <button type="button" class="btn" id="add-mat">+ Adicionar material</button>
+    </div>
+    <div class="card">
+      <h3>Fotos</h3>
+      <input type="file" id="arq" accept="image/*" multiple hidden>
+      <button type="button" class="btn" id="add-foto">+ Adicionar fotos</button>
+      <div class="fotos" id="fotos"></div>
+    </div>
+    <button class="btn pri cheio" id="salvar">${ed ? 'Salvar alterações' : 'Enviar diário'}</button>
+    <p class="muted peq" id="progresso" style="text-align:center"></p>
+  </form>`;
+  if (ed) $('#voltar').onclick = () => irPara('detalhe', diario.id);
+
+  const f = $('#fd');
+  const desenharChips = () => {
+    $('#chips').innerHTML = ativos.map(p => `<label class="chip ${tecSel.has(p.id) ? 'sel' : ''}"><input type="checkbox" value="${p.id}" ${tecSel.has(p.id) ? 'checked' : ''}>${esc(p.nome)}</label>`).join('');
+    $$('#chips input').forEach(i => i.onchange = () => { i.checked ? tecSel.add(i.value) : tecSel.delete(i.value); desenharChips(); calcular(); });
+  };
+  const calcular = () => {
+    const ini = toMin(f.hora_inicio.value), fim = toMin(f.hora_fim.value);
+    const ii = toMin(f.intervalo_inicio.value), fi = toMin(f.intervalo_fim.value);
+    if (ini == null || fim == null) return $('#total').textContent = 'Preencha início e fim';
+    if (fim <= ini) return $('#total').textContent = 'O fim precisa ser depois do início';
+    const minutos = fim - ini - (ii != null && fi != null && fi > ii ? fi - ii : 0);
+    const n = Math.max(tecSel.size, 1);
+    $('#total').textContent = `Total: ${fmtMin(minutos)} por técnico${n > 1 ? ` · ${fmtMin(minutos*n)} homem-hora (${n} técnicos)` : ''}`;
+  };
+  const desenharMats = () => {
+    $('#mats').innerHTML = materiais.map((m, i) => `
+      <div class="mat" data-i="${i}">
+        <input inputmode="decimal" placeholder="0" value="${esc(m.quantidade)}" data-k="quantidade">
+        <select data-k="unidade">${[...new Set([...UNIDADES, m.unidade])].map(u => `<option ${u === m.unidade ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select>
+        <input placeholder="Ex.: patch cord 2 m" value="${esc(m.descricao)}" data-k="descricao">
+        <button type="button" title="Remover" data-rm="${i}">×</button>
+      </div>`).join('');
+    $$('#mats [data-k]').forEach(el => el.oninput = el.onchange = () => { materiais[el.closest('.mat').dataset.i][el.dataset.k] = el.value; });
+    $$('#mats [data-rm]').forEach(b => b.onclick = () => { materiais.splice(+b.dataset.rm, 1); desenharMats(); });
+  };
+  const desenharFotos = () => {
+    $('#fotos').innerHTML =
+      fotosExist.map((x, i) => `<div class="foto"><img src="${x.url}" alt=""><button type="button" class="x" data-rme="${i}">×</button></div>`).join('') +
+      fotosNovas.map((x, i) => `<div class="foto"><img src="${x.preview}" alt=""><button type="button" class="x" data-rmn="${i}">×</button></div>`).join('');
+    $$('[data-rme]').forEach(b => b.onclick = () => { fotosRemovidas.push(fotosExist.splice(+b.dataset.rme, 1)[0]); desenharFotos(); });
+    $$('[data-rmn]').forEach(b => b.onclick = () => { URL.revokeObjectURL(fotosNovas[+b.dataset.rmn].preview); fotosNovas.splice(+b.dataset.rmn, 1); desenharFotos(); });
+  };
+  desenharChips(); desenharMats(); desenharFotos(); calcular();
+  ['hora_inicio','hora_fim','intervalo_inicio','intervalo_fim'].forEach(n => f[n].oninput = calcular);
+  $('#add-mat').onclick = () => { materiais.push({ quantidade:'', unidade:'un', descricao:'' }); desenharMats(); $$('#mats .mat:last-child input')[0]?.focus(); };
+  $('#add-foto').onclick = () => $('#arq').click();
+  $('#arq').onchange = e => { for (const file of e.target.files) fotosNovas.push({ file, preview: URL.createObjectURL(file) }); e.target.value = ''; desenharFotos(); };
+
+  f.onsubmit = async ev => {
+    ev.preventDefault();
+    const d = {
+      data: f.data.value, cliente_id: +f.cliente_id.value,
+      hora_inicio: f.hora_inicio.value, hora_fim: f.hora_fim.value,
+      intervalo_inicio: f.intervalo_inicio.value || null, intervalo_fim: f.intervalo_fim.value || null,
+      servico: f.servico.value.trim(), observacoes: f.observacoes.value.trim() || null,
+    };
+    if (!tecSel.size) return toast('Selecione pelo menos um técnico.', true);
+    if (!!d.intervalo_inicio !== !!d.intervalo_fim) return toast('Preencha início e fim do intervalo (ou deixe os dois vazios).', true);
+    const mats = materiais.filter(m => String(m.descricao).trim() || String(m.quantidade).trim());
+    for (const m of mats) {
+      const qn = Number(String(m.quantidade).replace(',', '.'));
+      if (!(qn > 0) || !String(m.descricao).trim()) return toast('Confira os materiais: cada linha precisa de quantidade e descrição.', true);
+      m._q = qn;
+    }
+    const btn = $('#salvar'), prog = $('#progresso'); btn.disabled = true;
+    try {
+      prog.textContent = 'Salvando diário…';
+      let id;
+      if (ed) { await q(sb.from('diarios').update(d).eq('id', diario.id)); id = diario.id;
+        await q(sb.from('diario_tecnicos').delete().eq('diario_id', id));
+        await q(sb.from('materiais').delete().eq('diario_id', id));
+      } else id = (await q(sb.from('diarios').insert(d).select('id').single())).id;
+      await q(sb.from('diario_tecnicos').insert([...tecSel].map(t => ({ diario_id:id, tecnico_id:t }))));
+      if (mats.length) await q(sb.from('materiais').insert(mats.map(m => ({ diario_id:id, quantidade:m._q, unidade:m.unidade, descricao:String(m.descricao).trim() }))));
+      if (fotosRemovidas.length) {
+        await sb.storage.from('fotos').remove(fotosRemovidas.map(x => x.caminho));
+        await q(sb.from('fotos').delete().in('id', fotosRemovidas.map(x => x.id)));
+      }
+      let i = 0;
+      for (const fn of fotosNovas) {
+        prog.textContent = `Enviando foto ${++i} de ${fotosNovas.length}…`;
+        const blob = await comprimir(fn.file);
+        const ext = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+        const caminho = `${id}/${crypto.randomUUID()}.${ext}`;
+        const { error } = await sb.storage.from('fotos').upload(caminho, blob, { contentType: blob.type || 'image/jpeg' });
+        if (error) throw error;
+        await q(sb.from('fotos').insert({ diario_id:id, caminho }));
+      }
+      toast(ed ? 'Diário atualizado.' : 'Diário enviado!');
+      atualizarContador();
+      irPara('detalhe', id);
+    } catch (e) { falha(e); btn.disabled = false; prog.textContent = ''; }
+  };
+}
+
+async function comprimir(file){
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation:'from-image' });
+    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width*k); cv.height = Math.round(bmp.height*k);
+    cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.82));
+    return blob || file;
+  } catch { return file; }
+}
+
+/* ================== LISTAS ================== */
+async function telaLista(c){
+  const admin = S.aba === 'diarios';
+  const F = S.filtros;
+  c.innerHTML = `
+    <h2>${admin ? 'Diários' : 'Meus diários'}</h2>
+    ${admin ? `<div class="card filtros" id="filtros">
+      <div><label>Cliente</label><select name="cliente"><option value="">Todos</option>${S.clientes.map(x => `<option value="${x.id}" ${F.cliente == x.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select></div>
+      <div><label>Situação</label><select name="status"><option value="">Todas</option>${Object.entries(STATUS).map(([k,v]) => `<option value="${k}" ${F.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+      <div><label>Cobrança</label><select name="cobranca"><option value="">Todas</option><option value="a_cobrar" ${F.cobranca === 'a_cobrar' ? 'selected' : ''}>A cobrar</option><option value="cobrado" ${F.cobranca === 'cobrado' ? 'selected' : ''}>Cobrado</option></select></div>
+      <div><label>Técnico</label><select name="tecnico"><option value="">Todos</option>${S.perfis.map(p => `<option value="${p.id}" ${F.tecnico === p.id ? 'selected' : ''}>${esc(p.nome)}</option>`).join('')}</select></div>
+      <div><label>De</label><input type="date" name="de" value="${F.de}"></div>
+      <div><label>Até</label><input type="date" name="ate" value="${F.ate}"></div>
+    </div>` : ''}
+    <div id="lista"><div class="vazio">Carregando…</div></div>`;
+  if (admin) $$('#filtros [name]').forEach(el => el.onchange = () => { F[el.name] = el.value; carregar(); });
+  const carregar = async () => {
+    const rows = await buscarDiarios(admin ? F : {});
+    $('#lista').innerHTML = rows.length ? rows.map(cardDiario).join('') :
+      `<div class="vazio">${admin ? 'Nenhum diário com esses filtros.' : 'Você ainda não tem diários.'}</div>`;
+    $$('#lista [data-id]').forEach(b => b.onclick = () => irPara('detalhe', +b.dataset.id));
+  };
+  await carregar();
+}
+async function buscarDiarios(F, limite = 300){
+  let qy = sb.from('vw_diarios').select('*').order('data', { ascending:false }).order('id', { ascending:false }).limit(limite);
+  if (F.cliente) qy = qy.eq('cliente_id', F.cliente);
+  if (F.status) qy = qy.eq('status', F.status);
+  if (F.cobranca === 'a_cobrar') qy = qy.eq('cobrado', false);
+  if (F.cobranca === 'cobrado') qy = qy.eq('cobrado', true);
+  if (F.de) qy = qy.gte('data', F.de);
+  if (F.ate) qy = qy.lte('data', F.ate);
+  if (F.tecnico) {
+    const ids = (await q(sb.from('diario_tecnicos').select('diario_id').eq('tecnico_id', F.tecnico))).map(x => x.diario_id);
+    if (!ids.length) return [];
+    qy = qy.in('id', ids);
+  }
+  return q(qy);
+}
+const cardDiario = d => `
+  <button class="item" data-id="${d.id}">
+    <div class="l1"><b>${esc(d.cliente_nome)}</b><span>${tagStatus(d.status)}</span></div>
+    <div class="l2"><span>${fmtData(d.data)} · ${esc(d.tecnicos_nomes || '—')}</span><span>${fmtMin(d.minutos_trabalhados)}${d.qtd_fotos ? ` · ${d.qtd_fotos} foto${d.qtd_fotos > 1 ? 's' : ''}` : ''}</span></div>
+    ${ehAdmin() && d.status === 'aprovado' ? `<div class="l2"><span></span>${tagCobr(d.cobrado)}</div>` : ''}
+  </button>`;
+
+/* ================== DETALHE ================== */
+async function carregarDiario(id){
+  const [d, mats, tecs, fotos] = await Promise.all([
+    q(sb.from('vw_diarios').select('*').eq('id', id).single()),
+    q(sb.from('materiais').select('*').eq('diario_id', id).order('id')),
+    q(sb.from('diario_tecnicos').select('tecnico_id').eq('diario_id', id)),
+    q(sb.from('fotos').select('*').eq('diario_id', id).order('id')),
+  ]);
+  if (fotos.length) {
+    const { data } = await sb.storage.from('fotos').createSignedUrls(fotos.map(x => x.caminho), 3600);
+    fotos.forEach((x, i) => x.url = data?.[i]?.signedUrl);
+  }
+  d._materiais = mats; d._tecnicos = tecs.map(t => t.tecnico_id); d._fotos = fotos;
+  return d;
+}
+async function telaDetalhe(c, id){
+  const d = await carregarDiario(id);
+  const meu = d.criado_por === S.perfil.id;
+  const podeEditar = ehAdmin() || (meu && d.status !== 'aprovado');
+  const voltarPara = ehAdmin() ? 'diarios' : 'meus';
+  c.innerHTML = `
+    <button class="linkbtn" id="voltar">← Voltar</button>
+    <div class="card" style="margin-top:.6rem">
+      <div class="l1" style="display:flex;justify-content:space-between;gap:1rem;align-items:start">
+        <div><h2 style="margin:0">${esc(d.cliente_nome)}</h2><div class="muted">${fmtData(d.data)}</div></div>
+        <div style="text-align:right">${tagStatus(d.status)} ${d.status === 'aprovado' && ehAdmin() ? tagCobr(d.cobrado) : ''}</div>
+      </div>
+      ${d.status === 'reprovado' ? `<div class="aviso err" style="margin-top:.8rem"><b>Motivo:</b> ${esc(d.motivo_reprovacao || '—')}</div>` : ''}
+      <div class="info" style="margin-top:1rem">
+        <div><span>Técnico(s)</span>${esc(d.tecnicos_nomes || '—')}</div>
+        <div><span>Horário</span>${hhmm(d.hora_inicio)} às ${hhmm(d.hora_fim)}</div>
+        <div><span>Intervalo</span>${d.intervalo_inicio ? `${hhmm(d.intervalo_inicio)} às ${hhmm(d.intervalo_fim)}` : 'Sem intervalo'}</div>
+        <div><span>Horas</span>${fmtMin(d.minutos_trabalhados)} por técnico</div>
+        <div><span>Homem-hora</span>${fmtMin(d.homem_minutos)}</div>
+        <div><span>Lançado por</span>${esc(d.criado_por_nome)}</div>
+      </div>
+    </div>
+    <div class="card"><h3>Serviço executado</h3><div style="white-space:pre-wrap">${esc(d.servico)}</div>
+      ${d.observacoes ? `<h3 style="margin-top:1rem">Observações</h3><div style="white-space:pre-wrap">${esc(d.observacoes)}</div>` : ''}</div>
+    <div class="card"><h3>Material utilizado</h3>
+      ${d._materiais.length ? `<table><thead><tr><th class="n">Qtd.</th><th>Un.</th><th>Descrição</th></tr></thead><tbody>
+        ${d._materiais.map(m => `<tr><td class="n">${Number(m.quantidade).toLocaleString('pt-BR')}</td><td>${esc(m.unidade)}</td><td>${esc(m.descricao)}</td></tr>`).join('')}
+      </tbody></table>` : '<div class="muted">Nenhum material informado.</div>'}</div>
+    <div class="card"><h3>Fotos</h3>
+      ${d._fotos.length ? `<div class="fotos">${d._fotos.map(x => `<div class="foto" data-url="${esc(x.url)}"><img src="${esc(x.url)}" alt="" loading="lazy"></div>`).join('')}</div>` : '<div class="muted">Nenhuma foto.</div>'}</div>
+    <div class="acoes" id="acoes">
+      ${ehAdmin() && d.status !== 'aprovado' ? `<button class="btn ok" data-a="aprovar">Aprovar</button>` : ''}
+      ${ehAdmin() && d.status !== 'reprovado' ? `<button class="btn perigo" data-a="reprovar">Reprovar</button>` : ''}
+      ${ehAdmin() && d.status === 'aprovado' ? `<button class="btn" data-a="cobrado">${d.cobrado ? 'Desmarcar cobrado' : 'Marcar como cobrado'}</button>` : ''}
+      ${podeEditar ? `<button class="btn" data-a="editar">Editar</button>` : ''}
+      <button class="btn" data-a="pdf">PDF / Imprimir</button>
+      ${podeEditar ? `<button class="btn perigo" data-a="excluir">Excluir</button>` : ''}
+    </div>`;
+  $('#voltar').onclick = () => irPara(voltarPara);
+  $$('.foto[data-url]').forEach(el => el.onclick = () => abrirFoto(el.dataset.url));
+  const acoes = {
+    aprovar: async () => { await q(sb.from('diarios').update({ status:'aprovado' }).eq('id', id)); toast('Diário aprovado.'); },
+    reprovar: async () => { const m = prompt('Motivo da reprovação (o técnico vai ver):'); if (m === null) return false;
+      await q(sb.from('diarios').update({ status:'reprovado', motivo_reprovacao: m.trim() || null }).eq('id', id)); toast('Diário reprovado.'); },
+    cobrado: async () => { await q(sb.from('diarios').update({ cobrado: !d.cobrado }).eq('id', id)); toast(d.cobrado ? 'Marcado como a cobrar.' : 'Marcado como cobrado.'); },
+    editar: () => { irPara('editar', d); return false; },
+    pdf: () => { imprimirDiario(d); return false; },
+    excluir: async () => { if (!confirm('Excluir este diário e as fotos dele?')) return false;
+      if (d._fotos.length) await sb.storage.from('fotos').remove(d._fotos.map(x => x.caminho));
+      await q(sb.from('diarios').delete().eq('id', id)); toast('Diário excluído.'); atualizarContador(); irPara(voltarPara); return false; },
+  };
+  $$('#acoes [data-a]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { const r = await acoes[b.dataset.a](); if (r !== false) { atualizarContador(); irPara('detalhe', id); } }
+    catch (e) { falha(e); b.disabled = false; }
+  });
+}
+
+/* ================== IMPRESSÃO / PDF ================== */
+function imprimir(html){
+  const area = $('#print-area'); area.innerHTML = html;
+  const imgs = $$('img', area);
+  Promise.all(imgs.map(i => i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; })))
+    .then(() => setTimeout(() => window.print(), 150));
+}
+function imprimirDiario(d){
+  imprimir(`
+    <h1>Diário de Obra — ${esc(d.cliente_nome)}</h1>
+    <p><b>Data:</b> ${fmtData(d.data)} &nbsp; <b>Técnico(s):</b> ${esc(d.tecnicos_nomes)}<br>
+       <b>Horário:</b> ${hhmm(d.hora_inicio)} às ${hhmm(d.hora_fim)} &nbsp; <b>Intervalo:</b> ${d.intervalo_inicio ? `${hhmm(d.intervalo_inicio)} às ${hhmm(d.intervalo_fim)}` : '—'}<br>
+       <b>Horas:</b> ${fmtMin(d.minutos_trabalhados)} por técnico · ${fmtMin(d.homem_minutos)} homem-hora &nbsp; <b>Situação:</b> ${STATUS[d.status]}</p>
+    <h2>Serviço executado</h2><p style="white-space:pre-wrap">${esc(d.servico)}</p>
+    ${d.observacoes ? `<h2>Observações</h2><p style="white-space:pre-wrap">${esc(d.observacoes)}</p>` : ''}
+    ${d._materiais.length ? `<h2>Material utilizado</h2><table><tr><th>Qtd.</th><th>Un.</th><th>Descrição</th></tr>
+      ${d._materiais.map(m => `<tr><td>${Number(m.quantidade).toLocaleString('pt-BR')}</td><td>${esc(m.unidade)}</td><td>${esc(m.descricao)}</td></tr>`).join('')}</table>` : ''}
+    ${d._fotos.length ? `<h2>Fotos</h2><div class="pf">${d._fotos.map(x => `<img src="${esc(x.url)}">`).join('')}</div>` : ''}`);
+}
+
+/* ================== RELATÓRIO ================== */
+async function telaRelatorio(c){
+  const R = S.rel;
+  c.innerHTML = `
+    <h2>Relatório de horas</h2>
+    <div class="card filtros" id="rf">
+      <div><label>Cliente</label><select name="cliente"><option value="">Todos</option>${S.clientes.map(x => `<option value="${x.id}" ${R.cliente == x.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select></div>
+      <div><label>Situação</label><select name="status"><option value="aprovado" ${R.status === 'aprovado' ? 'selected' : ''}>Só aprovados</option><option value="" ${R.status === '' ? 'selected' : ''}>Todos</option></select></div>
+      <div><label>Cobrança</label><select name="cobranca"><option value="a_cobrar" ${R.cobranca === 'a_cobrar' ? 'selected' : ''}>A cobrar</option><option value="cobrado" ${R.cobranca === 'cobrado' ? 'selected' : ''}>Cobrados</option><option value="" ${R.cobranca === '' ? 'selected' : ''}>Todos</option></select></div>
+      <div><label>De</label><input type="date" name="de" value="${R.de}"></div>
+      <div><label>Até</label><input type="date" name="ate" value="${R.ate}"></div>
+    </div>
+    <div id="res"><div class="vazio">Carregando…</div></div>`;
+  $$('#rf [name]').forEach(el => el.onchange = () => { R[el.name] = el.value; carregar(); });
+  let rows = [];
+  const carregar = async () => {
+    rows = await buscarDiarios(R, 5000);
+    const grupos = agrupar(rows);
+    const tot = grupos.reduce((a, g) => ({ n:a.n+g.n, min:a.min+g.min, hm:a.hm+g.hm }), { n:0, min:0, hm:0 });
+    const cobraveis = rows.filter(d => d.status === 'aprovado' && !d.cobrado);
+    $('#res').innerHTML = !rows.length ? '<div class="vazio">Nenhum diário com esses filtros.</div>' : `
+      <div class="card"><h3>Resumo por cliente</h3><div class="tabela"><table>
+        <thead><tr><th>Cliente</th><th class="n">Diários</th><th class="n">Horas</th><th class="n">Homem-hora</th></tr></thead>
+        <tbody>${grupos.map(g => `<tr><td>${esc(g.nome)}</td><td class="n">${g.n}</td><td class="n">${fmtMin(g.min)}</td><td class="n">${fmtMin(g.hm)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr><td>Total</td><td class="n">${tot.n}</td><td class="n">${fmtMin(tot.min)}</td><td class="n">${fmtMin(tot.hm)}</td></tr></tfoot>
+      </table></div>
+      <div class="acoes" style="margin-top:1rem">
+        <button class="btn" id="xls">Exportar Excel</button>
+        <button class="btn" id="pdf">Gerar PDF</button>
+        ${cobraveis.length ? `<button class="btn pri" id="cobrar">Marcar ${cobraveis.length} como cobrado${cobraveis.length > 1 ? 's' : ''}</button>` : ''}
+      </div></div>
+      <div class="card"><h3>Diários</h3><div class="tabela"><table class="larga">
+        <thead><tr><th>Data</th><th>Cliente</th><th>Técnicos</th><th class="n">Horas</th><th class="n">H-h</th><th>Situação</th></tr></thead>
+        <tbody>${rows.map(d => `<tr data-id="${d.id}" style="cursor:pointer"><td>${fmtData(d.data)}</td><td>${esc(d.cliente_nome)}</td><td>${esc(d.tecnicos_nomes)}</td><td class="n">${fmtMin(d.minutos_trabalhados)}</td><td class="n">${fmtMin(d.homem_minutos)}</td><td>${tagStatus(d.status)} ${d.status === 'aprovado' ? tagCobr(d.cobrado) : ''}</td></tr>`).join('')}</tbody>
+      </table></div></div>`;
+    $$('#res tr[data-id]').forEach(tr => tr.onclick = () => irPara('detalhe', +tr.dataset.id));
+    if (!rows.length) return;
+    $('#xls').onclick = () => exportarExcel(rows, grupos, tot).catch(falha);
+    $('#pdf').onclick = () => imprimirRelatorio(rows, grupos, tot);
+    const bc = $('#cobrar');
+    if (bc) bc.onclick = async () => {
+      if (!confirm(`Marcar ${cobraveis.length} diário(s) aprovado(s) como cobrado(s)?`)) return;
+      bc.disabled = true;
+      try { await q(sb.from('diarios').update({ cobrado:true }).in('id', cobraveis.map(d => d.id))); toast('Marcados como cobrados.'); carregar(); }
+      catch (e) { falha(e); bc.disabled = false; }
+    };
+  };
+  await carregar();
+}
+function agrupar(rows){
+  const m = new Map();
+  for (const d of rows) {
+    const g = m.get(d.cliente_id) || { nome:d.cliente_nome, n:0, min:0, hm:0 };
+    g.n++; g.min += d.minutos_trabalhados; g.hm += d.homem_minutos; m.set(d.cliente_id, g);
+  }
+  return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+function descreverFiltros(){
+  const R = S.rel, cli = S.clientes.find(x => x.id == R.cliente);
+  return [cli ? `Cliente: ${cli.nome}` : 'Todos os clientes',
+    R.status === 'aprovado' ? 'Só aprovados' : 'Todas as situações',
+    R.cobranca === 'a_cobrar' ? 'A cobrar' : R.cobranca === 'cobrado' ? 'Cobrados' : 'Cobrados e a cobrar',
+    R.de || R.ate ? `Período: ${fmtData(R.de) || 'início'} a ${fmtData(R.ate) || 'hoje'}` : 'Todo o período'].join(' · ');
+}
+function imprimirRelatorio(rows, grupos, tot){
+  imprimir(`
+    <h1>Relatório de horas — Diário de Obra</h1>
+    <p>${esc(descreverFiltros())}<br>Emitido em ${new Date().toLocaleString('pt-BR')}</p>
+    <h2>Resumo por cliente</h2>
+    <table><tr><th>Cliente</th><th>Diários</th><th>Horas</th><th>Homem-hora</th></tr>
+      ${grupos.map(g => `<tr><td>${esc(g.nome)}</td><td>${g.n}</td><td>${fmtMin(g.min)}</td><td>${fmtMin(g.hm)}</td></tr>`).join('')}
+      <tr><td><b>Total</b></td><td><b>${tot.n}</b></td><td><b>${fmtMin(tot.min)}</b></td><td><b>${fmtMin(tot.hm)}</b></td></tr></table>
+    <h2>Diários</h2>
+    <table><tr><th>Data</th><th>Cliente</th><th>Técnicos</th><th>Horário</th><th>Horas</th><th>H-h</th><th>Serviço</th></tr>
+      ${rows.map(d => `<tr><td>${fmtData(d.data)}</td><td>${esc(d.cliente_nome)}</td><td>${esc(d.tecnicos_nomes)}</td><td>${hhmm(d.hora_inicio)}–${hhmm(d.hora_fim)}</td><td>${fmtMin(d.minutos_trabalhados)}</td><td>${fmtMin(d.homem_minutos)}</td><td>${esc(d.servico)}</td></tr>`).join('')}</table>`);
+}
+async function carregarScript(src){
+  if (window.XLSX) return;
+  await new Promise((ok, erro) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => erro(new Error('Não foi possível carregar o gerador de Excel.')); document.head.appendChild(s); });
+}
+async function exportarExcel(rows, grupos, tot){
+  toast('Gerando planilha…');
+  await carregarScript(XLSX_JS);
+  const mats = [];
+  const ids = rows.map(d => d.id);
+  for (let i = 0; i < ids.length; i += 200) mats.push(...await q(sb.from('materiais').select('*').in('diario_id', ids.slice(i, i+200)).order('diario_id')));
+  const porId = new Map(rows.map(d => [d.id, d]));
+  const h = m => Math.round(m / 60 * 100) / 100;
+  const resumo = [['Cliente','Diários','Horas (h:mm)','Horas (decimal)','Homem-hora (h:mm)','Homem-hora (decimal)'],
+    ...grupos.map(g => [g.nome, g.n, fmtMin(g.min), h(g.min), fmtMin(g.hm), h(g.hm)]),
+    ['TOTAL', tot.n, fmtMin(tot.min), h(tot.min), fmtMin(tot.hm), h(tot.hm)], [], [descreverFiltros()]];
+  const diarios = [['Nº','Data','Cliente','Técnicos','Início','Fim','Intervalo','Horas (h:mm)','Horas (decimal)','Homem-hora (decimal)','Serviço executado','Observações','Situação','Cobrado','Lançado por'],
+    ...rows.map(d => [d.id, fmtData(d.data), d.cliente_nome, d.tecnicos_nomes, hhmm(d.hora_inicio), hhmm(d.hora_fim),
+      d.intervalo_inicio ? `${hhmm(d.intervalo_inicio)}–${hhmm(d.intervalo_fim)}` : '', fmtMin(d.minutos_trabalhados), h(d.minutos_trabalhados), h(d.homem_minutos),
+      d.servico, d.observacoes || '', STATUS[d.status], d.cobrado ? 'Sim' : 'Não', d.criado_por_nome])];
+  const materiais = [['Nº diário','Data','Cliente','Qtd.','Un.','Descrição'],
+    ...mats.filter(m => porId.has(m.diario_id)).map(m => { const d = porId.get(m.diario_id); return [m.diario_id, fmtData(d.data), d.cliente_nome, Number(m.quantidade), m.unidade, m.descricao]; })];
+  const wb = XLSX.utils.book_new();
+  const add = (nome, aoa, larg) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = larg.map(w => ({ wch:w })); XLSX.utils.book_append_sheet(wb, ws, nome); };
+  add('Resumo', resumo, [28,9,13,14,17,19]);
+  add('Diários', diarios, [6,11,22,24,7,7,12,12,13,17,50,30,11,9,18]);
+  add('Materiais', materiais, [10,11,22,8,6,40]);
+  XLSX.writeFile(wb, `relatorio-horas-${hoje()}.xlsx`);
+}
+
+/* ================== CADASTROS ================== */
+async function telaCadastros(c){
+  await carregarBase();
+  const pend = S.perfis.filter(p => !p.ativo);
+  c.innerHTML = `
+    <h2>Cadastros</h2>
+    <div class="card"><h3>Usuários</h3>
+      ${pend.length ? `<div class="aviso warn">${pend.length} conta${pend.length > 1 ? 's' : ''} aguardando liberação.</div>` : ''}
+      <p class="muted peq" style="margin-top:0">Cada pessoa cria a própria conta pela tela de login. Depois você libera aqui.</p>
+      <div id="usuarios">${[...pend, ...S.perfis.filter(p => p.ativo)].map(p => `
+        <div class="linha" data-u="${p.id}">
+          <div><b>${esc(p.nome)}</b>${p.id === S.perfil.id ? ' <span class="muted peq">(você)</span>' : ''}<div class="muted peq">${esc(p.email || '')}</div></div>
+          <div class="acoes" style="margin:0;align-items:center">
+            <select data-k="papel" ${p.id === S.perfil.id ? 'disabled' : ''}><option value="tecnico" ${p.papel === 'tecnico' ? 'selected' : ''}>Técnico</option><option value="admin" ${p.papel === 'admin' ? 'selected' : ''}>Admin</option></select>
+            ${p.id === S.perfil.id ? '' : p.ativo ? `<button class="btn" data-k="ativo" data-v="false">Bloquear</button>` : `<button class="btn ok" data-k="ativo" data-v="true">Liberar</button>`}
+          </div>
+        </div>`).join('')}</div>
+    </div>
+    <div class="card"><h3>Clientes</h3>
+      <form id="nc" style="display:flex;gap:.5rem;margin-bottom:.5rem"><input name="nome" placeholder="Nome do cliente" required><button class="btn pri">Adicionar</button></form>
+      <div id="clientes">${S.clientes.length ? S.clientes.map(x => `
+        <div class="linha" data-c="${x.id}">
+          <div><b>${esc(x.nome)}</b> ${x.finalizado ? '<span class="tag t-acobrar">Finalizado</span>' : ''}</div>
+          <div class="acoes" style="margin:0">
+            <button class="btn" data-ca="renomear">Renomear</button>
+            <button class="btn" data-ca="finalizar">${x.finalizado ? 'Reabrir' : 'Finalizar'}</button>
+          </div>
+        </div>`).join('') : '<div class="muted">Nenhum cliente ainda.</div>'}</div>
+      <p class="muted peq">Cliente finalizado some da lista do "Novo diário", mas o histórico continua.</p>
+    </div>`;
+  $$('#usuarios [data-k]').forEach(el => {
+    const salvar = async v => { try { await q(sb.from('perfis').update({ [el.dataset.k]: v }).eq('id', el.closest('[data-u]').dataset.u)); toast('Usuário atualizado.'); irPara('cadastros'); } catch (e) { falha(e); } };
+    if (el.tagName === 'SELECT') el.onchange = () => salvar(el.value); else el.onclick = () => salvar(el.dataset.v === 'true');
+  });
+  $('#nc').onsubmit = async ev => { ev.preventDefault();
+    try { await q(sb.from('clientes').insert({ nome: ev.target.nome.value.trim() })); toast('Cliente adicionado.'); irPara('cadastros'); } catch (e) { falha(e); } };
+  $$('#clientes [data-ca]').forEach(b => b.onclick = async () => {
+    const id = +b.closest('[data-c]').dataset.c, x = S.clientes.find(k => k.id === id);
+    try {
+      if (b.dataset.ca === 'renomear') { const n = prompt('Novo nome do cliente:', x.nome); if (!n?.trim()) return; await q(sb.from('clientes').update({ nome:n.trim() }).eq('id', id)); }
+      else await q(sb.from('clientes').update({ finalizado: !x.finalizado }).eq('id', id));
+      toast('Cliente atualizado.'); irPara('cadastros');
+    } catch (e) { falha(e); }
+  });
+}
+</script>
+</body>
+</html>
