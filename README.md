@@ -17,17 +17,14 @@ Painel do Supabase → projeto **Diario de Obra** → **Authentication**:
 2. Endereço: https://freesarthur0.github.io/diario-obra/
 3. Cada novo commit na `main` atualiza o site sozinho.
 
-## 3. Primeiro acesso
-1. **Sua esposa cria a conta primeiro**: a primeira conta criada vira **admin** automaticamente.
-2. Ela cadastra os clientes em **Cadastros**.
-3. Cada técnico abre o link e toca em **Criar conta**. A conta fica "aguardando liberação" até ela tocar em **Liberar**.
-4. No celular: menu do navegador → **Adicionar à tela inicial**.
-
-## Como funciona
-- **Técnico**: lança o diário (cliente, técnicos, horários, intervalo, serviço, materiais, fotos) e vê só os diários dele ou dos quais participou. Pode editar enquanto não for aprovado; se for reprovado, vê o motivo, corrige e reenvia.
-- **Admin**: vê tudo, aprova/reprova, marca como cobrado, tira relatório de horas por cliente (Excel ou PDF) e libera/bloqueia usuários.
+## 3. Uso
+- Hoje **só a admin usa o app** e preenche os diários no lugar dos técnicos.
+- **Colar do WhatsApp:** em "Novo", cole a mensagem do diário (ou várias de uma vez) e toque em "Preencher o formulário". O app reconhece Data, Cliente, Técnico(s), Horário, Intervalo, Serviço executado e Material utilizado. Se aparecer cliente ou técnico que ainda não existe, ele oferece cadastrar com um toque.
+- **Técnicos** são um cadastro simples (só o nome), em Cadastros. Não precisam de login.
+- Diário lançado pela admin já fica **aprovado**.
 - Horas: calculadas sozinhas (fim − início − intervalo). Homem-hora = horas × nº de técnicos.
 - Fotos: reduzidas para ~1600 px antes de enviar, para economizar espaço (o plano grátis tem 1 GB).
+- Se um dia os técnicos forem lançar os próprios diários: eles criam a conta pela tela de login e a admin libera em Cadastros → Acesso ao app.
 
 ## Limitações desta primeira versão
 - "Esqueci a senha" depende de e-mail. Sem um servidor de e-mail próprio configurado no Supabase (SMTP), ele só funciona para os e-mails da sua conta Supabase.

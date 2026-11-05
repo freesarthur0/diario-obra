@@ -138,7 +138,7 @@ const STATUS = { pendente:'Pendente', aprovado:'Aprovado', reprovado:'Reprovado'
 const tagStatus = s => `<span class="tag t-${s}">${STATUS[s]}</span>`;
 const tagCobr = c => c ? `<span class="tag t-cobrado">Cobrado</span>` : `<span class="tag t-acobrar">A cobrar</span>`;
 
-const S = { session:null, perfil:null, clientes:[], perfis:[], aba:null, voltar:null,
+const S = { session:null, perfil:null, clientes:[], perfis:[], tecnicos:[], fila:[], aba:null, voltar:null,
   filtros:{ cliente:'', status:'', cobranca:'', tecnico:'', de:'', ate:'' },
   rel:{ cliente:'', status:'aprovado', cobranca:'a_cobrar', de:'', ate:'' } };
 const ehAdmin = () => S.perfil?.papel === 'admin';
@@ -180,13 +180,14 @@ async function iniciar(session){
     if (!S.perfil || !S.perfil.ativo) return telaAguardando();
     await carregarBase();
     montarShell();
-    irPara(ehAdmin() ? 'diarios' : 'novo');
+    irPara('novo');
   } catch (e) { falha(e); telaLogin(); }
 }
 async function carregarBase(){
-  [S.clientes, S.perfis] = await Promise.all([
+  [S.clientes, S.perfis, S.tecnicos] = await Promise.all([
     q(sb.from('clientes').select('*').order('nome')),
     q(sb.from('perfis').select('*').order('nome')),
+    q(sb.from('tecnicos').select('*').order('nome')),
   ]);
 }
 
@@ -274,44 +275,159 @@ function irPara(aba, ...args){
   Promise.resolve(telas[aba](c, ...args)).catch(e => { falha(e); c.innerHTML = '<div class="vazio">Não foi possível carregar.</div>'; });
 }
 
+/* ================== COLAR DO WHATSAPP ================== */
+const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const CHAVES = [
+  ['data',      /^data( do servico| da obra)?$/],
+  ['cliente',   /^(cliente|obra|local|empresa)$/],
+  ['tecnicos',  /^(tecnicos?( ?\(s\))?|equipe|colaboradores?)$/],
+  ['horario',   /^(horarios?|hora|horas)$/],
+  ['intervalo', /^(intervalo|almoco)$/],
+  ['servico',   /^(servicos?|servicos? (executados?|realizados?|feitos?)|atividades?)$/],
+  ['material',  /^(materia(l|is)|materia(l|is) (utilizados?|usados?|aplicados?))$/],
+  ['obs',       /^(obs|observacao|observacoes)$/],
+];
+const qualChave = rot => (CHAVES.find(([, re]) => re.test(norm(rot))) || [])[0];
+const pad2 = n => String(n).padStart(2, '0');
+
+function separarDiarios(txt){
+  const linhas = txt.replace(/\r/g, '').split('\n')
+    // tira o prefixo que o WhatsApp põe ao copiar várias mensagens: "[03/11/2026 17:09] Fulano: " ou "03/11/2026 17:09 - Fulano: "
+    .map(l => l.replace(/^\s*\[?\d{1,2}\/\d{1,2}\/\d{2,4},?\s+\d{1,2}:\d{2}(:\d{2})?\]?\s*(-\s*)?[^:\n]{1,40}:\s*/, ''));
+  const blocos = []; let atual = null;
+  for (const l of linhas) {
+    if (norm(l.replace(/\*/g, '')) === 'diario de obra') { atual = []; blocos.push(atual); continue; }
+    if (!atual) { atual = []; blocos.push(atual); }
+    atual.push(l);
+  }
+  return blocos.map(lerBloco).filter(b => b._ok);
+}
+
+function lerHoras(txt){
+  const out = []; const re = /(\d{1,2})\s*(?::|h)\s*(\d{2})?/gi; let m;
+  while ((m = re.exec(txt))) { const h = +m[1], mi = +(m[2] || 0); if (h < 24 && mi < 60) out.push(`${pad2(h)}:${pad2(mi)}`); }
+  if (out.length < 2) { const m2 = txt.match(/(\d{1,2})\s*(?:a|as|às|à|-|ate|até)\s*(\d{1,2})\b/i); if (m2) return [`${pad2(+m2[1])}:00`, `${pad2(+m2[2])}:00`]; }
+  return out;
+}
+function lerData(txt){
+  if (/hoje/i.test(txt)) return hoje();
+  const m = txt.match(/(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?/); if (!m) return null;
+  let a = m[3] ? +m[3] : new Date().getFullYear(); if (a < 100) a += 2000;
+  if (+m[2] < 1 || +m[2] > 12 || +m[1] < 1 || +m[1] > 31) return null;
+  return `${a}-${pad2(+m[2])}-${pad2(+m[1])}`;
+}
+const UNI_MAP = [[/^(m|mt|mts|metros?)$/i, 'm'], [/^(cx|caixas?)$/i, 'cx'], [/^(pct|pcts|pacotes?)$/i, 'pct'], [/^rolos?$/i, 'rolo'],
+                 [/^kg$/i, 'kg'], [/^(l|litros?)$/i, 'L'], [/^(un|und|unid|unidades?|p[çc]s?|pe[çc]as?)$/i, 'un']];
+function lerMateriais(txt){
+  if (!txt || /^(nenhum|nao|n\/a|-|sem material|nada)\.?$/i.test(norm(txt))) return [];
+  const itens = [];
+  for (const linha of txt.split('\n')) {
+    for (let p of linha.split(/\.\s+(?=e\s)|;|\s+e\s+(?=\d)/i)) {
+      p = p.replace(/^\s*(e|-|•|\*)\s+/i, '').replace(/[.,;]\s*$/, '').trim();
+      if (!p) continue;
+      const m = p.match(/^(\d+(?:[.,]\d+)?)\s*(m|mt|mts|metros?|cx|caixas?|pct|pcts|pacotes?|rolos?|kg|l|litros?|un|und|unid|unidades?|p[çc]s?|pe[çc]as?)?\.?\s+(?:de\s+)?(.+)$/i);
+      if (!m) { itens.push({ quantidade:'', unidade:'un', descricao:p }); continue; }
+      const unidade = m[2] ? (UNI_MAP.find(([re]) => re.test(m[2])) || [, 'un'])[1] : 'un';
+      let descricao = m[3].trim();
+      // "50 patch cord 2m. E 25 de 1m" -> o segundo vira "patch cord 1m"
+      const ant = itens[itens.length - 1], soMedida = /^\d+(?:[.,]\d+)?\s*m$/i;
+      if (soMedida.test(descricao) && ant && /\d+(?:[.,]\d+)?\s*m\b/i.test(ant.descricao))
+        descricao = ant.descricao.replace(/\d+(?:[.,]\d+)?\s*m\b/i, descricao.replace(/\s+/g, ''));
+      itens.push({ quantidade: m[1].replace(',', '.'), unidade, descricao });
+    }
+  }
+  return itens;
+}
+function acharCliente(nome){
+  const n = norm(nome); if (!n) return null;
+  return S.clientes.find(c => norm(c.nome) === n) || S.clientes.find(c => norm(c.nome).includes(n) || n.includes(norm(c.nome))) || null;
+}
+function acharTecnico(nome){
+  const n = norm(nome); if (!n) return null;
+  return S.tecnicos.find(t => norm(t.nome) === n) || S.tecnicos.find(t => norm(t.nome).split(' ')[0] === n.split(' ')[0]) || null;
+}
+function lerBloco(linhas){
+  const r = {}; let atual = null;
+  for (const bruta of linhas) {
+    const l = bruta.replace(/\*/g, '').trim();
+    if (!l) continue;
+    const m = l.match(/^([^:]{2,30}):\s*(.*)$/), k = m && qualChave(m[1]);
+    if (k) { atual = k; r[k] = [r[k], m[2]].filter(Boolean).join('\n'); continue; }
+    if (atual) r[atual] = [r[atual], l].filter(Boolean).join('\n');
+  }
+  const d = { _ok: Object.keys(r).length >= 2, _avisos: [], _clienteNovo: null, _tecnicosNovos: [], _tecnicos: [], _materiais: [], _fotos: [] };
+  d.data = r.data ? lerData(r.data) : null;
+  if (r.data && !d.data) d._avisos.push(`Data não reconhecida: "${r.data}"`);
+  if (!r.data) d._avisos.push('A mensagem não tinha data. Usei a de hoje.');
+  if (r.cliente) {
+    const c = acharCliente(r.cliente);
+    if (c) d.cliente_id = c.id; else d._clienteNovo = r.cliente.trim();
+  }
+  if (r.tecnicos) for (const nome of r.tecnicos.split(/,|;|\/|&|\+|\s+e\s+/i).map(s => s.trim()).filter(Boolean)) {
+    const t = acharTecnico(nome); if (t) d._tecnicos.push(t.id); else d._tecnicosNovos.push(nome);
+  }
+  const h = r.horario ? lerHoras(r.horario) : [];
+  [d.hora_inicio, d.hora_fim] = h;
+  if (r.horario && h.length < 2) d._avisos.push(`Horário não reconhecido: "${r.horario}"`);
+  if (r.intervalo && !/^(nao|sem|nenhum|-)/.test(norm(r.intervalo))) {
+    const i = lerHoras(r.intervalo);
+    if (i.length >= 2) [d.intervalo_inicio, d.intervalo_fim] = i; else d._avisos.push(`Intervalo não reconhecido: "${r.intervalo}". Preencha à mão.`);
+  }
+  d.servico = (r.servico || '').trim();
+  d.observacoes = (r.obs || '').trim() || null;
+  d._materiais = lerMateriais(r.material);
+  if (d._materiais.some(m => !m.quantidade)) d._avisos.push('Algum material ficou sem quantidade. Confira a lista.');
+  return d;
+}
+
 /* ================== FORMULÁRIO DO DIÁRIO ================== */
-async function telaForm(c, diario = null){
-  const ed = !!diario;
-  const ativos = S.perfis.filter(p => p.ativo);
-  const clientes = S.clientes.filter(x => !x.finalizado || x.id === diario?.cliente_id);
-  let tecSel = new Set(ed ? diario._tecnicos : [S.perfil.id]);
-  let materiais = ed ? diario._materiais.map(m => ({...m})) : [{ quantidade:'', unidade:'un', descricao:'' }];
+async function telaForm(c, diario = null, prefill = null){
+  if (!diario && !prefill) S.fila = [];
+  const ed = !!diario, base = diario || prefill || {};
+  const admin = ehAdmin();
+  let tecSel = new Set(base._tecnicos || (admin ? [] : S.tecnicos.filter(t => t.perfil_id === S.perfil.id).map(t => t.id)));
+  let materiais = (base._materiais || []).map(m => ({...m}));
+  if (!materiais.length) materiais = [{ quantidade:'', unidade:'un', descricao:'' }];
   let fotosExist = ed ? [...diario._fotos] : [];
   const fotosRemovidas = [];
   let fotosNovas = [];
+  let clienteNovo = base._clienteNovo || null, tecnicosNovos = [...(base._tecnicosNovos || [])];
+  const fila = S.fila || [];
 
   c.innerHTML = `
   <form id="fd">
     ${ed ? `<button type="button" class="linkbtn" id="voltar">← Voltar</button><h2 style="margin-top:.6rem">Editar diário</h2>` : '<h2>Novo diário de obra</h2>'}
-    ${ed && diario.status === 'reprovado' && !ehAdmin() ? `<div class="aviso err"><b>Reprovado:</b> ${esc(diario.motivo_reprovacao || 'sem motivo informado')}. Corrija e salve para reenviar.</div>` : ''}
-    ${ed && diario.status === 'aprovado' ? `<div class="aviso warn">Este diário já foi aprovado.</div>` : ''}
+    ${!ed ? `<div class="card" id="whats">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem">
+        <h3 style="margin:0">Colar do WhatsApp</h3>
+        <button type="button" class="btn" id="abrir-whats">${prefill ? 'Colar outro' : 'Colar mensagem'}</button>
+      </div>
+      <div id="whats-box" style="display:none;margin-top:.75rem">
+        <textarea id="whats-txt" placeholder="Copie a mensagem do diário no WhatsApp e cole aqui. Pode colar várias mensagens de uma vez." style="min-height:160px"></textarea>
+        <button type="button" class="btn pri cheio" id="ler-whats" style="margin-top:.5rem">Preencher o formulário</button>
+      </div>
+    </div>` : ''}
+    ${prefill ? `<div class="aviso ${prefill._avisos.length || clienteNovo || tecnicosNovos.length ? 'warn' : ''}" id="avisos" style="${prefill._avisos.length || clienteNovo || tecnicosNovos.length ? '' : 'background:var(--ok2);color:var(--ok)'}"></div>` : ''}
+    ${ed && diario.status === 'reprovado' && !admin ? `<div class="aviso err"><b>Reprovado:</b> ${esc(diario.motivo_reprovacao || 'sem motivo informado')}. Corrija e salve para reenviar.</div>` : ''}
     <div class="card">
       <div class="grade">
-        <div class="campo"><label>Data</label><input type="date" name="data" required value="${ed ? diario.data : hoje()}"></div>
-        <div class="campo"><label>Cliente</label>
-          <select name="cliente_id" required><option value="">Selecione…</option>
-            ${clientes.map(x => `<option value="${x.id}" ${diario?.cliente_id === x.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}
-          </select>${!clientes.length ? `<div class="muted peq">Nenhum cliente cadastrado. ${ehAdmin() ? 'Cadastre em "Cadastros".' : 'Peça ao administrador.'}</div>` : ''}</div>
+        <div class="campo"><label>Data</label><input type="date" name="data" required value="${base.data || hoje()}"></div>
+        <div class="campo"><label>Cliente</label><select name="cliente_id" required></select></div>
       </div>
-      <div class="campo"><label>Técnico(s)</label><div class="chips" id="chips"></div></div>
+      <div class="campo"><label>Técnico(s) que foram na obra</label><div class="chips" id="chips"></div></div>
     </div>
     <div class="card">
       <div class="grade">
-        <div class="campo"><label>Início</label><input type="time" name="hora_inicio" required value="${hhmm(diario?.hora_inicio)}"></div>
-        <div class="campo"><label>Fim</label><input type="time" name="hora_fim" required value="${hhmm(diario?.hora_fim)}"></div>
-        <div class="campo"><label>Intervalo – início</label><input type="time" name="intervalo_inicio" value="${hhmm(diario?.intervalo_inicio)}"></div>
-        <div class="campo"><label>Intervalo – fim</label><input type="time" name="intervalo_fim" value="${hhmm(diario?.intervalo_fim)}"></div>
+        <div class="campo"><label>Início</label><input type="time" name="hora_inicio" required value="${hhmm(base.hora_inicio)}"></div>
+        <div class="campo"><label>Fim</label><input type="time" name="hora_fim" required value="${hhmm(base.hora_fim)}"></div>
+        <div class="campo"><label>Intervalo – início</label><input type="time" name="intervalo_inicio" value="${hhmm(base.intervalo_inicio)}"></div>
+        <div class="campo"><label>Intervalo – fim</label><input type="time" name="intervalo_fim" value="${hhmm(base.intervalo_fim)}"></div>
       </div>
       <div class="total" id="total">Preencha início e fim</div>
     </div>
     <div class="card">
-      <div class="campo"><label>Serviço executado</label><textarea name="servico" required placeholder="Descreva o que foi feito">${esc(diario?.servico)}</textarea></div>
-      <div class="campo" style="margin:0"><label>Observações (opcional)</label><textarea name="observacoes" style="min-height:60px">${esc(diario?.observacoes)}</textarea></div>
+      <div class="campo"><label>Serviço executado</label><textarea name="servico" required placeholder="Descreva o que foi feito">${esc(base.servico)}</textarea></div>
+      <div class="campo" style="margin:0"><label>Observações (opcional)</label><textarea name="observacoes" style="min-height:60px">${esc(base.observacoes)}</textarea></div>
     </div>
     <div class="card">
       <h3>Material utilizado</h3>
@@ -325,15 +441,53 @@ async function telaForm(c, diario = null){
       <button type="button" class="btn" id="add-foto">+ Adicionar fotos</button>
       <div class="fotos" id="fotos"></div>
     </div>
-    <button class="btn pri cheio" id="salvar">${ed ? 'Salvar alterações' : 'Enviar diário'}</button>
+    <button class="btn pri cheio" id="salvar">${ed ? 'Salvar alterações' : admin ? 'Salvar diário' : 'Enviar diário'}${fila.length ? ` e ir para o próximo (faltam ${fila.length})` : ''}</button>
     <p class="muted peq" id="progresso" style="text-align:center"></p>
   </form>`;
   if (ed) $('#voltar').onclick = () => irPara('detalhe', diario.id);
 
   const f = $('#fd');
+  const desenharClientes = () => {
+    const sel = f.cliente_id.value || base.cliente_id || '';
+    const lista = S.clientes.filter(x => !x.finalizado || x.id == sel);
+    f.cliente_id.innerHTML = `<option value="">Selecione…</option>` +
+      lista.map(x => `<option value="${x.id}" ${x.id == sel ? 'selected' : ''}>${esc(x.nome)}</option>`).join('') +
+      (admin ? `<option value="__novo">+ Cadastrar novo cliente…</option>` : '');
+  };
+  const novoCliente = async nome => {
+    nome = (nome ?? prompt('Nome do novo cliente:'))?.trim(); if (!nome) return null;
+    const x = await q(sb.from('clientes').insert({ nome }).select().single());
+    S.clientes.push(x); S.clientes.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    base.cliente_id = x.id; f.cliente_id.value = ''; desenharClientes(); f.cliente_id.value = x.id;
+    toast(`Cliente "${nome}" cadastrado.`); return x;
+  };
+  f.cliente_id.onchange = async () => {
+    if (f.cliente_id.value !== '__novo') return;
+    f.cliente_id.value = ''; try { await novoCliente(); } catch (e) { falha(e); }
+  };
+  const novoTecnico = async nome => {
+    nome = (nome ?? prompt('Nome do técnico:'))?.trim(); if (!nome) return null;
+    const t = await q(sb.from('tecnicos').insert({ nome }).select().single());
+    S.tecnicos.push(t); S.tecnicos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    tecSel.add(t.id); desenharChips(); calcular(); toast(`Técnico "${nome}" cadastrado.`); return t;
+  };
   const desenharChips = () => {
-    $('#chips').innerHTML = ativos.map(p => `<label class="chip ${tecSel.has(p.id) ? 'sel' : ''}"><input type="checkbox" value="${p.id}" ${tecSel.has(p.id) ? 'checked' : ''}>${esc(p.nome)}</label>`).join('');
-    $$('#chips input').forEach(i => i.onchange = () => { i.checked ? tecSel.add(i.value) : tecSel.delete(i.value); desenharChips(); calcular(); });
+    const lista = S.tecnicos.filter(t => t.ativo || tecSel.has(t.id));
+    $('#chips').innerHTML = (lista.length ? lista.map(t => `<label class="chip ${tecSel.has(t.id) ? 'sel' : ''}"><input type="checkbox" value="${t.id}" ${tecSel.has(t.id) ? 'checked' : ''}>${esc(t.nome)}</label>`).join('') : `<span class="muted peq">Nenhum técnico cadastrado.</span>`) +
+      (admin ? `<button type="button" class="chip" id="novo-tec" style="border-style:dashed;color:var(--pri)">+ Novo técnico</button>` : '');
+    $$('#chips input').forEach(i => i.onchange = () => { i.checked ? tecSel.add(+i.value) : tecSel.delete(+i.value); desenharChips(); calcular(); });
+    const nt = $('#novo-tec'); if (nt) nt.onclick = () => novoTecnico().catch(falha);
+  };
+  const desenharAvisos = () => {
+    const box = $('#avisos'); if (!box) return;
+    const itens = [...prefill._avisos.map(a => `<li>${esc(a)}</li>`)];
+    if (clienteNovo) itens.unshift(`<li>Cliente <b>${esc(clienteNovo)}</b> não está cadastrado. <button type="button" class="linkbtn" id="cad-cli">Cadastrar</button></li>`);
+    tecnicosNovos.forEach((n, i) => itens.unshift(`<li>Técnico <b>${esc(n)}</b> não está cadastrado. <button type="button" class="linkbtn" data-cadtec="${i}">Cadastrar</button></li>`));
+    if (!itens.length) { box.innerHTML = '<b>Formulário preenchido.</b> Confira e adicione as fotos.'; box.className = 'aviso'; box.style.cssText = 'background:var(--ok2);color:var(--ok)'; return; }
+    box.innerHTML = `<b>Preenchido. Confira:</b><ul style="margin:.4rem 0 0;padding-left:1.1rem">${itens.join('')}</ul>`;
+    const bc = $('#cad-cli'); if (bc) bc.onclick = async () => { try { if (await novoCliente(clienteNovo)) { clienteNovo = null; desenharAvisos(); } } catch (e) { falha(e); } };
+    $$('[data-cadtec]').forEach(b => b.onclick = async () => { const i = +b.dataset.cadtec;
+      try { if (await novoTecnico(tecnicosNovos[i])) { tecnicosNovos.splice(i, 1); desenharAvisos(); } } catch (e) { falha(e); } });
   };
   const calcular = () => {
     const ini = toMin(f.hora_inicio.value), fim = toMin(f.hora_fim.value);
@@ -362,14 +516,29 @@ async function telaForm(c, diario = null){
     $$('[data-rme]').forEach(b => b.onclick = () => { fotosRemovidas.push(fotosExist.splice(+b.dataset.rme, 1)[0]); desenharFotos(); });
     $$('[data-rmn]').forEach(b => b.onclick = () => { URL.revokeObjectURL(fotosNovas[+b.dataset.rmn].preview); fotosNovas.splice(+b.dataset.rmn, 1); desenharFotos(); });
   };
-  desenharChips(); desenharMats(); desenharFotos(); calcular();
+  desenharClientes(); desenharChips(); desenharMats(); desenharFotos(); calcular(); desenharAvisos();
   ['hora_inicio','hora_fim','intervalo_inicio','intervalo_fim'].forEach(n => f[n].oninput = calcular);
   $('#add-mat').onclick = () => { materiais.push({ quantidade:'', unidade:'un', descricao:'' }); desenharMats(); $$('#mats .mat:last-child input')[0]?.focus(); };
   $('#add-foto').onclick = () => $('#arq').click();
   $('#arq').onchange = e => { for (const file of e.target.files) fotosNovas.push({ file, preview: URL.createObjectURL(file) }); e.target.value = ''; desenharFotos(); };
 
+  if (!ed) {
+    $('#abrir-whats').onclick = () => { const b = $('#whats-box'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; if (b.style.display === 'block') $('#whats-txt').focus(); };
+    if (!prefill && admin) { $('#whats-box').style.display = 'block'; }
+    $('#ler-whats').onclick = () => {
+      const txt = $('#whats-txt').value.trim();
+      if (!txt) return toast('Cole a mensagem primeiro.', true);
+      const lidos = separarDiarios(txt);
+      if (!lidos.length) return toast('Não reconheci um diário nesse texto. Ele precisa ter linhas como "Cliente:" e "Horário:".', true);
+      S.fila = lidos.slice(1);
+      if (S.fila.length) toast(`${lidos.length} diários encontrados. Vamos um de cada vez.`);
+      irPara('novo', null, lidos[0]);
+    };
+  }
+
   f.onsubmit = async ev => {
     ev.preventDefault();
+    if (f.cliente_id.value === '' || f.cliente_id.value === '__novo') return toast('Escolha o cliente.', true);
     const d = {
       data: f.data.value, cliente_id: +f.cliente_id.value,
       hora_inicio: f.hora_inicio.value, hora_fim: f.hora_fim.value,
@@ -408,8 +577,10 @@ async function telaForm(c, diario = null){
         if (error) throw error;
         await q(sb.from('fotos').insert({ diario_id:id, caminho }));
       }
-      toast(ed ? 'Diário atualizado.' : 'Diário enviado!');
       atualizarContador();
+      if (!ed && S.fila?.length) { toast(`Diário salvo. Faltam ${S.fila.length}.`); return irPara('novo', null, S.fila.shift()); }
+      S.fila = [];
+      toast(ed ? 'Diário atualizado.' : 'Diário salvo!');
       irPara('detalhe', id);
     } catch (e) { falha(e); btn.disabled = false; prog.textContent = ''; }
   };
@@ -436,7 +607,7 @@ async function telaLista(c){
       <div><label>Cliente</label><select name="cliente"><option value="">Todos</option>${S.clientes.map(x => `<option value="${x.id}" ${F.cliente == x.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</select></div>
       <div><label>Situação</label><select name="status"><option value="">Todas</option>${Object.entries(STATUS).map(([k,v]) => `<option value="${k}" ${F.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div><label>Cobrança</label><select name="cobranca"><option value="">Todas</option><option value="a_cobrar" ${F.cobranca === 'a_cobrar' ? 'selected' : ''}>A cobrar</option><option value="cobrado" ${F.cobranca === 'cobrado' ? 'selected' : ''}>Cobrado</option></select></div>
-      <div><label>Técnico</label><select name="tecnico"><option value="">Todos</option>${S.perfis.map(p => `<option value="${p.id}" ${F.tecnico === p.id ? 'selected' : ''}>${esc(p.nome)}</option>`).join('')}</select></div>
+      <div><label>Técnico</label><select name="tecnico"><option value="">Todos</option>${S.tecnicos.map(t => `<option value="${t.id}" ${F.tecnico == t.id ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select></div>
       <div><label>De</label><input type="date" name="de" value="${F.de}"></div>
       <div><label>Até</label><input type="date" name="ate" value="${F.ate}"></div>
     </div>` : ''}
@@ -674,11 +845,29 @@ async function exportarExcel(rows, grupos, tot){
 async function telaCadastros(c){
   await carregarBase();
   const pend = S.perfis.filter(p => !p.ativo);
+  const linhaCad = (tipo, x, inativo, rotAtivo, rotInativo) => `
+    <div class="linha" data-${tipo}="${x.id}">
+      <div><b>${esc(x.nome)}</b> ${inativo ? `<span class="tag t-acobrar">${rotInativo}</span>` : ''}</div>
+      <div class="acoes" style="margin:0">
+        <button class="btn" data-acao="renomear">Renomear</button>
+        <button class="btn" data-acao="alternar">${inativo ? rotAtivo : (tipo === 'c' ? 'Finalizar' : 'Desativar')}</button>
+      </div>
+    </div>`;
   c.innerHTML = `
     <h2>Cadastros</h2>
-    <div class="card"><h3>Usuários</h3>
+    <div class="card"><h3>Técnicos</h3>
+      <form id="nt" style="display:flex;gap:.5rem;margin-bottom:.5rem"><input name="nome" placeholder="Nome do técnico" required><button class="btn pri">Adicionar</button></form>
+      <div id="tecnicos">${S.tecnicos.length ? S.tecnicos.map(t => linhaCad('t', t, !t.ativo, 'Reativar', 'Inativo')).join('') : '<div class="muted">Nenhum técnico ainda.</div>'}</div>
+      <p class="muted peq">Técnico inativo some da lista do diário, mas o histórico continua.</p>
+    </div>
+    <div class="card"><h3>Clientes</h3>
+      <form id="nc" style="display:flex;gap:.5rem;margin-bottom:.5rem"><input name="nome" placeholder="Nome do cliente" required><button class="btn pri">Adicionar</button></form>
+      <div id="clientes">${S.clientes.length ? S.clientes.map(x => linhaCad('c', x, x.finalizado, 'Reabrir', 'Finalizado')).join('') : '<div class="muted">Nenhum cliente ainda.</div>'}</div>
+      <p class="muted peq">Cliente finalizado some da lista do diário, mas o histórico continua.</p>
+    </div>
+    <div class="card"><h3>Acesso ao app</h3>
       ${pend.length ? `<div class="aviso warn">${pend.length} conta${pend.length > 1 ? 's' : ''} aguardando liberação.</div>` : ''}
-      <p class="muted peq" style="margin-top:0">Cada pessoa cria a própria conta pela tela de login. Depois você libera aqui.</p>
+      <p class="muted peq" style="margin-top:0">Quem tem login no app. Hoje só você precisa; se um dia os técnicos forem lançar os próprios diários, eles criam a conta pela tela de login e você libera aqui.</p>
       <div id="usuarios">${[...pend, ...S.perfis.filter(p => p.ativo)].map(p => `
         <div class="linha" data-u="${p.id}">
           <div><b>${esc(p.nome)}</b>${p.id === S.perfil.id ? ' <span class="muted peq">(você)</span>' : ''}<div class="muted peq">${esc(p.email || '')}</div></div>
@@ -687,34 +876,27 @@ async function telaCadastros(c){
             ${p.id === S.perfil.id ? '' : p.ativo ? `<button class="btn" data-k="ativo" data-v="false">Bloquear</button>` : `<button class="btn ok" data-k="ativo" data-v="true">Liberar</button>`}
           </div>
         </div>`).join('')}</div>
-    </div>
-    <div class="card"><h3>Clientes</h3>
-      <form id="nc" style="display:flex;gap:.5rem;margin-bottom:.5rem"><input name="nome" placeholder="Nome do cliente" required><button class="btn pri">Adicionar</button></form>
-      <div id="clientes">${S.clientes.length ? S.clientes.map(x => `
-        <div class="linha" data-c="${x.id}">
-          <div><b>${esc(x.nome)}</b> ${x.finalizado ? '<span class="tag t-acobrar">Finalizado</span>' : ''}</div>
-          <div class="acoes" style="margin:0">
-            <button class="btn" data-ca="renomear">Renomear</button>
-            <button class="btn" data-ca="finalizar">${x.finalizado ? 'Reabrir' : 'Finalizar'}</button>
-          </div>
-        </div>`).join('') : '<div class="muted">Nenhum cliente ainda.</div>'}</div>
-      <p class="muted peq">Cliente finalizado some da lista do "Novo diário", mas o histórico continua.</p>
     </div>`;
   $$('#usuarios [data-k]').forEach(el => {
     const salvar = async v => { try { await q(sb.from('perfis').update({ [el.dataset.k]: v }).eq('id', el.closest('[data-u]').dataset.u)); toast('Usuário atualizado.'); irPara('cadastros'); } catch (e) { falha(e); } };
     if (el.tagName === 'SELECT') el.onchange = () => salvar(el.value); else el.onclick = () => salvar(el.dataset.v === 'true');
   });
-  $('#nc').onsubmit = async ev => { ev.preventDefault();
-    try { await q(sb.from('clientes').insert({ nome: ev.target.nome.value.trim() })); toast('Cliente adicionado.'); irPara('cadastros'); } catch (e) { falha(e); } };
-  $$('#clientes [data-ca]').forEach(b => b.onclick = async () => {
-    const id = +b.closest('[data-c]').dataset.c, x = S.clientes.find(k => k.id === id);
+  const adicionar = (form, tabela, msg) => $(form).onsubmit = async ev => { ev.preventDefault();
+    try { await q(sb.from(tabela).insert({ nome: ev.target.nome.value.trim() })); toast(msg); irPara('cadastros'); } catch (e) { falha(e); } };
+  adicionar('#nt', 'tecnicos', 'Técnico adicionado.');
+  adicionar('#nc', 'clientes', 'Cliente adicionado.');
+  const acoes = (sel, attr, tabela, lista, campo) => $$(`${sel} [data-acao]`).forEach(b => b.onclick = async () => {
+    const id = +b.closest(`[data-${attr}]`).dataset[attr], x = lista.find(k => k.id === id);
     try {
-      if (b.dataset.ca === 'renomear') { const n = prompt('Novo nome do cliente:', x.nome); if (!n?.trim()) return; await q(sb.from('clientes').update({ nome:n.trim() }).eq('id', id)); }
-      else await q(sb.from('clientes').update({ finalizado: !x.finalizado }).eq('id', id));
-      toast('Cliente atualizado.'); irPara('cadastros');
+      if (b.dataset.acao === 'renomear') { const n = prompt('Novo nome:', x.nome); if (!n?.trim()) return; await q(sb.from(tabela).update({ nome:n.trim() }).eq('id', id)); }
+      else await q(sb.from(tabela).update({ [campo]: !x[campo] }).eq('id', id));
+      toast('Cadastro atualizado.'); irPara('cadastros');
     } catch (e) { falha(e); }
   });
+  acoes('#tecnicos', 't', 'tecnicos', S.tecnicos, 'ativo');
+  acoes('#clientes', 'c', 'clientes', S.clientes, 'finalizado');
 }
 </script>
+
 </body>
 </html>
