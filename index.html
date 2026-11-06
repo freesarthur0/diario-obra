@@ -134,6 +134,7 @@ const fmtData = d => d ? d.split('-').reverse().join('/') : '';
 const hoje = () => new Date().toLocaleDateString('en-CA');
 const toMin = t => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h*60 + m; };
 const hhmm = t => t ? t.slice(0,5) : '';
+const fmtKm = n => n == null || n === '' ? '—' : `${Number(n).toLocaleString('pt-BR')} km`;
 const STATUS = { pendente:'Pendente', aprovado:'Aprovado', reprovado:'Reprovado' };
 const tagStatus = s => `<span class="tag t-${s}">${STATUS[s]}</span>`;
 const tagCobr = c => c ? `<span class="tag t-cobrado">Cobrado</span>` : `<span class="tag t-acobrar">A cobrar</span>`;
@@ -283,6 +284,7 @@ const CHAVES = [
   ['tecnicos',  /^(tecnicos?( ?\(s\))?|equipe|colaboradores?)$/],
   ['horario',   /^(horarios?|hora|horas)$/],
   ['intervalo', /^(intervalo|almoco)$/],
+  ['km',        /^(km|kms|km rodados?|quilometragem|quilometros?( rodados?)?)$/],
   ['servico',   /^(servicos?|servicos? (executados?|realizados?|feitos?)|atividades?)$/],
   ['material',  /^(materia(l|is)|materia(l|is) (utilizados?|usados?|aplicados?))$/],
   ['obs',       /^(obs|observacao|observacoes)$/],
@@ -373,6 +375,9 @@ function lerBloco(linhas){
     const i = lerHoras(r.intervalo);
     if (i.length >= 2) [d.intervalo_inicio, d.intervalo_fim] = i; else d._avisos.push(`Intervalo não reconhecido: "${r.intervalo}". Preencha à mão.`);
   }
+  if (r.km) { const k = r.km.match(/(\d+(?:[.,]\d+)?)/); if (k) d.km = Number(k[1].replace(',', '.')); else d._avisos.push(`KM não reconhecido: "${r.km}"`); }
+  if (!r.cliente || !r.cliente.trim()) d._avisos.push('A mensagem não informa o cliente.');
+  if (!r.tecnicos || !r.tecnicos.trim()) d._avisos.push('A mensagem não informa os técnicos.');
   d.servico = (r.servico || '').trim();
   d.observacoes = (r.obs || '').trim() || null;
   d._materiais = lerMateriais(r.material);
@@ -422,6 +427,7 @@ async function telaForm(c, diario = null, prefill = null){
         <div class="campo"><label>Fim</label><input type="time" name="hora_fim" required value="${hhmm(base.hora_fim)}"></div>
         <div class="campo"><label>Intervalo – início</label><input type="time" name="intervalo_inicio" value="${hhmm(base.intervalo_inicio)}"></div>
         <div class="campo"><label>Intervalo – fim</label><input type="time" name="intervalo_fim" value="${hhmm(base.intervalo_fim)}"></div>
+        <div class="campo"><label>KM rodados</label><input name="km" inputmode="decimal" placeholder="0" value="${base.km ?? ''}"></div>
       </div>
       <div class="total" id="total">Preencha início e fim</div>
     </div>
@@ -544,7 +550,9 @@ async function telaForm(c, diario = null, prefill = null){
       hora_inicio: f.hora_inicio.value, hora_fim: f.hora_fim.value,
       intervalo_inicio: f.intervalo_inicio.value || null, intervalo_fim: f.intervalo_fim.value || null,
       servico: f.servico.value.trim(), observacoes: f.observacoes.value.trim() || null,
+      km: f.km.value.trim() ? Number(f.km.value.trim().replace(',', '.')) : null,
     };
+    if (d.km != null && !(d.km >= 0)) return toast('KM inválido: use só números (ex.: 80 ou 80,5).', true);
     if (!tecSel.size) return toast('Selecione pelo menos um técnico.', true);
     if (!!d.intervalo_inicio !== !!d.intervalo_fim) return toast('Preencha início e fim do intervalo (ou deixe os dois vazios).', true);
     const mats = materiais.filter(m => String(m.descricao).trim() || String(m.quantidade).trim());
@@ -639,7 +647,7 @@ async function buscarDiarios(F, limite = 300){
 const cardDiario = d => `
   <button class="item" data-id="${d.id}">
     <div class="l1"><b>${esc(d.cliente_nome)}</b><span>${tagStatus(d.status)}</span></div>
-    <div class="l2"><span>${fmtData(d.data)} · ${esc(d.tecnicos_nomes || '—')}</span><span>${fmtMin(d.minutos_trabalhados)}${d.qtd_fotos ? ` · ${d.qtd_fotos} foto${d.qtd_fotos > 1 ? 's' : ''}` : ''}</span></div>
+    <div class="l2"><span>${fmtData(d.data)} · ${esc(d.tecnicos_nomes || '—')}</span><span>${fmtMin(d.minutos_trabalhados)}${d.km != null ? ` · ${fmtKm(d.km)}` : ''}${d.qtd_fotos ? ` · ${d.qtd_fotos} foto${d.qtd_fotos > 1 ? 's' : ''}` : ''}</span></div>
     ${ehAdmin() && d.status === 'aprovado' ? `<div class="l2"><span></span>${tagCobr(d.cobrado)}</div>` : ''}
   </button>`;
 
@@ -677,6 +685,7 @@ async function telaDetalhe(c, id){
         <div><span>Intervalo</span>${d.intervalo_inicio ? `${hhmm(d.intervalo_inicio)} às ${hhmm(d.intervalo_fim)}` : 'Sem intervalo'}</div>
         <div><span>Horas</span>${fmtMin(d.minutos_trabalhados)} por técnico</div>
         <div><span>Homem-hora</span>${fmtMin(d.homem_minutos)}</div>
+        <div><span>KM rodados</span>${fmtKm(d.km)}</div>
         <div><span>Lançado por</span>${esc(d.criado_por_nome)}</div>
       </div>
     </div>
@@ -728,7 +737,7 @@ function imprimirDiario(d){
     <h1>Diário de Obra — ${esc(d.cliente_nome)}</h1>
     <p><b>Data:</b> ${fmtData(d.data)} &nbsp; <b>Técnico(s):</b> ${esc(d.tecnicos_nomes)}<br>
        <b>Horário:</b> ${hhmm(d.hora_inicio)} às ${hhmm(d.hora_fim)} &nbsp; <b>Intervalo:</b> ${d.intervalo_inicio ? `${hhmm(d.intervalo_inicio)} às ${hhmm(d.intervalo_fim)}` : '—'}<br>
-       <b>Horas:</b> ${fmtMin(d.minutos_trabalhados)} por técnico · ${fmtMin(d.homem_minutos)} homem-hora &nbsp; <b>Situação:</b> ${STATUS[d.status]}</p>
+       <b>Horas:</b> ${fmtMin(d.minutos_trabalhados)} por técnico · ${fmtMin(d.homem_minutos)} homem-hora &nbsp; <b>KM:</b> ${fmtKm(d.km)} &nbsp; <b>Situação:</b> ${STATUS[d.status]}</p>
     <h2>Serviço executado</h2><p style="white-space:pre-wrap">${esc(d.servico)}</p>
     ${d.observacoes ? `<h2>Observações</h2><p style="white-space:pre-wrap">${esc(d.observacoes)}</p>` : ''}
     ${d._materiais.length ? `<h2>Material utilizado</h2><table><tr><th>Qtd.</th><th>Un.</th><th>Descrição</th></tr>
@@ -754,13 +763,13 @@ async function telaRelatorio(c){
   const carregar = async () => {
     rows = await buscarDiarios(R, 5000);
     const grupos = agrupar(rows);
-    const tot = grupos.reduce((a, g) => ({ n:a.n+g.n, min:a.min+g.min, hm:a.hm+g.hm }), { n:0, min:0, hm:0 });
+    const tot = grupos.reduce((a, g) => ({ n:a.n+g.n, min:a.min+g.min, hm:a.hm+g.hm, km:a.km+g.km }), { n:0, min:0, hm:0, km:0 });
     const cobraveis = rows.filter(d => d.status === 'aprovado' && !d.cobrado);
     $('#res').innerHTML = !rows.length ? '<div class="vazio">Nenhum diário com esses filtros.</div>' : `
       <div class="card"><h3>Resumo por cliente</h3><div class="tabela"><table>
-        <thead><tr><th>Cliente</th><th class="n">Diários</th><th class="n">Horas</th><th class="n">Homem-hora</th></tr></thead>
-        <tbody>${grupos.map(g => `<tr><td>${esc(g.nome)}</td><td class="n">${g.n}</td><td class="n">${fmtMin(g.min)}</td><td class="n">${fmtMin(g.hm)}</td></tr>`).join('')}</tbody>
-        <tfoot><tr><td>Total</td><td class="n">${tot.n}</td><td class="n">${fmtMin(tot.min)}</td><td class="n">${fmtMin(tot.hm)}</td></tr></tfoot>
+        <thead><tr><th>Cliente</th><th class="n">Diários</th><th class="n">Horas</th><th class="n">Homem-hora</th><th class="n">KM</th></tr></thead>
+        <tbody>${grupos.map(g => `<tr><td>${esc(g.nome)}</td><td class="n">${g.n}</td><td class="n">${fmtMin(g.min)}</td><td class="n">${fmtMin(g.hm)}</td><td class="n">${fmtKm(g.km)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr><td>Total</td><td class="n">${tot.n}</td><td class="n">${fmtMin(tot.min)}</td><td class="n">${fmtMin(tot.hm)}</td><td class="n">${fmtKm(tot.km)}</td></tr></tfoot>
       </table></div>
       <div class="acoes" style="margin-top:1rem">
         <button class="btn" id="xls">Exportar Excel</button>
@@ -768,8 +777,8 @@ async function telaRelatorio(c){
         ${cobraveis.length ? `<button class="btn pri" id="cobrar">Marcar ${cobraveis.length} como cobrado${cobraveis.length > 1 ? 's' : ''}</button>` : ''}
       </div></div>
       <div class="card"><h3>Diários</h3><div class="tabela"><table class="larga">
-        <thead><tr><th>Data</th><th>Cliente</th><th>Técnicos</th><th class="n">Horas</th><th class="n">H-h</th><th>Situação</th></tr></thead>
-        <tbody>${rows.map(d => `<tr data-id="${d.id}" style="cursor:pointer"><td>${fmtData(d.data)}</td><td>${esc(d.cliente_nome)}</td><td>${esc(d.tecnicos_nomes)}</td><td class="n">${fmtMin(d.minutos_trabalhados)}</td><td class="n">${fmtMin(d.homem_minutos)}</td><td>${tagStatus(d.status)} ${d.status === 'aprovado' ? tagCobr(d.cobrado) : ''}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>Data</th><th>Cliente</th><th>Técnicos</th><th class="n">Horas</th><th class="n">H-h</th><th class="n">KM</th><th>Situação</th></tr></thead>
+        <tbody>${rows.map(d => `<tr data-id="${d.id}" style="cursor:pointer"><td>${fmtData(d.data)}</td><td>${esc(d.cliente_nome)}</td><td>${esc(d.tecnicos_nomes)}</td><td class="n">${fmtMin(d.minutos_trabalhados)}</td><td class="n">${fmtMin(d.homem_minutos)}</td><td class="n">${d.km != null ? fmtKm(d.km) : '—'}</td><td>${tagStatus(d.status)} ${d.status === 'aprovado' ? tagCobr(d.cobrado) : ''}</td></tr>`).join('')}</tbody>
       </table></div></div>`;
     $$('#res tr[data-id]').forEach(tr => tr.onclick = () => irPara('detalhe', +tr.dataset.id));
     if (!rows.length) return;
@@ -788,8 +797,8 @@ async function telaRelatorio(c){
 function agrupar(rows){
   const m = new Map();
   for (const d of rows) {
-    const g = m.get(d.cliente_id) || { nome:d.cliente_nome, n:0, min:0, hm:0 };
-    g.n++; g.min += d.minutos_trabalhados; g.hm += d.homem_minutos; m.set(d.cliente_id, g);
+    const g = m.get(d.cliente_id) || { nome:d.cliente_nome, n:0, min:0, hm:0, km:0 };
+    g.n++; g.min += d.minutos_trabalhados; g.hm += d.homem_minutos; g.km += Number(d.km || 0); m.set(d.cliente_id, g);
   }
   return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
@@ -805,12 +814,12 @@ function imprimirRelatorio(rows, grupos, tot){
     <h1>Relatório de horas — Diário de Obra</h1>
     <p>${esc(descreverFiltros())}<br>Emitido em ${new Date().toLocaleString('pt-BR')}</p>
     <h2>Resumo por cliente</h2>
-    <table><tr><th>Cliente</th><th>Diários</th><th>Horas</th><th>Homem-hora</th></tr>
-      ${grupos.map(g => `<tr><td>${esc(g.nome)}</td><td>${g.n}</td><td>${fmtMin(g.min)}</td><td>${fmtMin(g.hm)}</td></tr>`).join('')}
-      <tr><td><b>Total</b></td><td><b>${tot.n}</b></td><td><b>${fmtMin(tot.min)}</b></td><td><b>${fmtMin(tot.hm)}</b></td></tr></table>
+    <table><tr><th>Cliente</th><th>Diários</th><th>Horas</th><th>Homem-hora</th><th>KM</th></tr>
+      ${grupos.map(g => `<tr><td>${esc(g.nome)}</td><td>${g.n}</td><td>${fmtMin(g.min)}</td><td>${fmtMin(g.hm)}</td><td>${fmtKm(g.km)}</td></tr>`).join('')}
+      <tr><td><b>Total</b></td><td><b>${tot.n}</b></td><td><b>${fmtMin(tot.min)}</b></td><td><b>${fmtMin(tot.hm)}</b></td><td><b>${fmtKm(tot.km)}</b></td></tr></table>
     <h2>Diários</h2>
-    <table><tr><th>Data</th><th>Cliente</th><th>Técnicos</th><th>Horário</th><th>Horas</th><th>H-h</th><th>Serviço</th></tr>
-      ${rows.map(d => `<tr><td>${fmtData(d.data)}</td><td>${esc(d.cliente_nome)}</td><td>${esc(d.tecnicos_nomes)}</td><td>${hhmm(d.hora_inicio)}–${hhmm(d.hora_fim)}</td><td>${fmtMin(d.minutos_trabalhados)}</td><td>${fmtMin(d.homem_minutos)}</td><td>${esc(d.servico)}</td></tr>`).join('')}</table>`);
+    <table><tr><th>Data</th><th>Cliente</th><th>Técnicos</th><th>Horário</th><th>Horas</th><th>H-h</th><th>KM</th><th>Serviço</th></tr>
+      ${rows.map(d => `<tr><td>${fmtData(d.data)}</td><td>${esc(d.cliente_nome)}</td><td>${esc(d.tecnicos_nomes)}</td><td>${hhmm(d.hora_inicio)}–${hhmm(d.hora_fim)}</td><td>${fmtMin(d.minutos_trabalhados)}</td><td>${fmtMin(d.homem_minutos)}</td><td>${d.km != null ? fmtKm(d.km) : '—'}</td><td>${esc(d.servico)}</td></tr>`).join('')}</table>`);
 }
 async function carregarScript(src){
   if (window.XLSX) return;
@@ -824,19 +833,19 @@ async function exportarExcel(rows, grupos, tot){
   for (let i = 0; i < ids.length; i += 200) mats.push(...await q(sb.from('materiais').select('*').in('diario_id', ids.slice(i, i+200)).order('diario_id')));
   const porId = new Map(rows.map(d => [d.id, d]));
   const h = m => Math.round(m / 60 * 100) / 100;
-  const resumo = [['Cliente','Diários','Horas (h:mm)','Horas (decimal)','Homem-hora (h:mm)','Homem-hora (decimal)'],
-    ...grupos.map(g => [g.nome, g.n, fmtMin(g.min), h(g.min), fmtMin(g.hm), h(g.hm)]),
-    ['TOTAL', tot.n, fmtMin(tot.min), h(tot.min), fmtMin(tot.hm), h(tot.hm)], [], [descreverFiltros()]];
-  const diarios = [['Nº','Data','Cliente','Técnicos','Início','Fim','Intervalo','Horas (h:mm)','Horas (decimal)','Homem-hora (decimal)','Serviço executado','Observações','Situação','Cobrado','Lançado por'],
+  const resumo = [['Cliente','Diários','Horas (h:mm)','Horas (decimal)','Homem-hora (h:mm)','Homem-hora (decimal)','KM'],
+    ...grupos.map(g => [g.nome, g.n, fmtMin(g.min), h(g.min), fmtMin(g.hm), h(g.hm), g.km]),
+    ['TOTAL', tot.n, fmtMin(tot.min), h(tot.min), fmtMin(tot.hm), h(tot.hm), tot.km], [], [descreverFiltros()]];
+  const diarios = [['Nº','Data','Cliente','Técnicos','Início','Fim','Intervalo','Horas (h:mm)','Horas (decimal)','Homem-hora (decimal)','KM','Serviço executado','Observações','Situação','Cobrado','Lançado por'],
     ...rows.map(d => [d.id, fmtData(d.data), d.cliente_nome, d.tecnicos_nomes, hhmm(d.hora_inicio), hhmm(d.hora_fim),
-      d.intervalo_inicio ? `${hhmm(d.intervalo_inicio)}–${hhmm(d.intervalo_fim)}` : '', fmtMin(d.minutos_trabalhados), h(d.minutos_trabalhados), h(d.homem_minutos),
+      d.intervalo_inicio ? `${hhmm(d.intervalo_inicio)}–${hhmm(d.intervalo_fim)}` : '', fmtMin(d.minutos_trabalhados), h(d.minutos_trabalhados), h(d.homem_minutos), d.km != null ? Number(d.km) : '',
       d.servico, d.observacoes || '', STATUS[d.status], d.cobrado ? 'Sim' : 'Não', d.criado_por_nome])];
   const materiais = [['Nº diário','Data','Cliente','Qtd.','Un.','Descrição'],
     ...mats.filter(m => porId.has(m.diario_id)).map(m => { const d = porId.get(m.diario_id); return [m.diario_id, fmtData(d.data), d.cliente_nome, Number(m.quantidade), m.unidade, m.descricao]; })];
   const wb = XLSX.utils.book_new();
   const add = (nome, aoa, larg) => { const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = larg.map(w => ({ wch:w })); XLSX.utils.book_append_sheet(wb, ws, nome); };
-  add('Resumo', resumo, [28,9,13,14,17,19]);
-  add('Diários', diarios, [6,11,22,24,7,7,12,12,13,17,50,30,11,9,18]);
+  add('Resumo', resumo, [28,9,13,14,17,19,9]);
+  add('Diários', diarios, [6,11,22,24,7,7,12,12,13,17,8,50,30,11,9,18]);
   add('Materiais', materiais, [10,11,22,8,6,40]);
   XLSX.writeFile(wb, `relatorio-horas-${hoje()}.xlsx`);
 }
