@@ -26,6 +26,10 @@ Painel do Supabase → projeto **Diario de Obra** → **Authentication**:
 - Fotos: reduzidas para ~1600 px antes de enviar, para economizar espaço (o plano grátis tem 1 GB).
 - Se um dia os técnicos forem lançar os próprios diários: eles criam a conta pela tela de login e a admin libera em Cadastros → Acesso ao app.
 
+## PDFs
+- O PDF do diário e o do relatório saem na **folha timbrada** (`timbrado.jpg`, montada a partir do modelo .docx da empresa), em todas as páginas.
+- Para trocar a folha timbrada, basta substituir o `timbrado.jpg` (A4 em pé, 1654 × 2339 px).
+
 ## Limitações desta primeira versão
 - "Esqueci a senha" depende de e-mail. Sem um servidor de e-mail próprio configurado no Supabase (SMTP), ele só funciona para os e-mails da sua conta Supabase.
 - Projetos grátis do Supabase são pausados após 7 dias sem uso. Se isso acontecer, é só reativar no painel.

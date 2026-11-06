@@ -95,24 +95,12 @@
   #toast.err{background:var(--err)}
   #lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:60;display:none;align-items:center;justify-content:center;padding:1rem}
   #lightbox img{max-width:100%;max-height:100%;border-radius:6px}
-  #print-area{display:none}
-  @media print{
-    body{background:#fff}
-    #app,#toast,#lightbox{display:none!important}
-    #print-area{display:block;font-size:11pt;color:#000}
-    #print-area h1{font-size:16pt} #print-area h2{font-size:13pt;margin-top:1rem}
-    #print-area table{font-size:9.5pt} #print-area th{color:#333}
-    #print-area .pf{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-    #print-area .pf img{width:100%;height:180px;object-fit:cover;border-radius:4px}
-    @page{margin:14mm}
-  }
 </style>
 </head>
 <body>
 <div id="app"><div class="centro muted">Carregando…</div></div>
 <div id="toast"></div>
 <div id="lightbox"><img alt=""></div>
-<div id="print-area"></div>
 
 <script type="module">
 /* ================== CONFIGURAÇÃO ================== */
@@ -120,6 +108,9 @@ const SUPABASE_URL = 'https://uprcsejmjusyknfbogiy.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_adtdrTFpsu958IKvec4vZA_8IGMSlnZ'; // chave pública (pode ficar no app)
 const SUPABASE_JS  = window.SUPABASE_JS_URL || 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 const XLSX_JS      = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+const JSPDF_JS     = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js';
+const AUTOTABLE_JS = 'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js';
+const TIMBRADO     = 'timbrado.jpg'; // folha timbrada usada de fundo nos PDFs
 const UNIDADES = ['un','m','cx','pct','rolo','kg','L'];
 /* ================================================== */
 
@@ -702,7 +693,7 @@ async function telaDetalhe(c, id){
       ${ehAdmin() && d.status !== 'reprovado' ? `<button class="btn perigo" data-a="reprovar">Reprovar</button>` : ''}
       ${ehAdmin() && d.status === 'aprovado' ? `<button class="btn" data-a="cobrado">${d.cobrado ? 'Desmarcar cobrado' : 'Marcar como cobrado'}</button>` : ''}
       ${podeEditar ? `<button class="btn" data-a="editar">Editar</button>` : ''}
-      <button class="btn" data-a="pdf">PDF / Imprimir</button>
+      <button class="btn" data-a="pdf">Baixar PDF</button>
       ${podeEditar ? `<button class="btn perigo" data-a="excluir">Excluir</button>` : ''}
     </div>`;
   $('#voltar').onclick = () => irPara(voltarPara);
@@ -713,36 +704,151 @@ async function telaDetalhe(c, id){
       await q(sb.from('diarios').update({ status:'reprovado', motivo_reprovacao: m.trim() || null }).eq('id', id)); toast('Diário reprovado.'); },
     cobrado: async () => { await q(sb.from('diarios').update({ cobrado: !d.cobrado }).eq('id', id)); toast(d.cobrado ? 'Marcado como a cobrar.' : 'Marcado como cobrado.'); },
     editar: () => { irPara('editar', d); return false; },
-    pdf: () => { imprimirDiario(d); return false; },
+    pdf: async () => { await pdfDiario(d); return false; },
     excluir: async () => { if (!confirm('Excluir este diário e as fotos dele?')) return false;
       if (d._fotos.length) await sb.storage.from('fotos').remove(d._fotos.map(x => x.caminho));
       await q(sb.from('diarios').delete().eq('id', id)); toast('Diário excluído.'); atualizarContador(); irPara(voltarPara); return false; },
   };
   $$('#acoes [data-a]').forEach(b => b.onclick = async () => {
     b.disabled = true;
-    try { const r = await acoes[b.dataset.a](); if (r !== false) { atualizarContador(); irPara('detalhe', id); } }
+    try { const r = await acoes[b.dataset.a](); if (r !== false) { atualizarContador(); irPara('detalhe', id); } else b.disabled = false; }
     catch (e) { falha(e); b.disabled = false; }
   });
 }
 
-/* ================== IMPRESSÃO / PDF ================== */
-function imprimir(html){
-  const area = $('#print-area'); area.innerHTML = html;
-  const imgs = $$('img', area);
-  Promise.all(imgs.map(i => i.complete ? 1 : new Promise(r => { i.onload = i.onerror = r; })))
-    .then(() => setTimeout(() => window.print(), 150));
+/* ================== PDF COM FOLHA TIMBRADA ================== */
+const PDF = { top:38, bottom:32, left:18, right:18, larg:174, cor:[204,43,57], texto:[30,30,30] };
+// Fontes padrão do PDF só têm o alfabeto latino: troca travessões/aspas curvas e remove emojis
+const pt = s => String(s ?? '').replace(/[—–]/g, '-').replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/…/g, '...').replace(/[^\x00-\xFF\n]/g, '');
+const kmPdf = n => n == null || n === '' ? '-' : `${Number(n).toLocaleString('pt-BR')} km`;
+const nomeArquivo = s => pt(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+
+async function carregarScript(src, pronto){
+  if (pronto()) return;
+  await new Promise((ok, erro) => { const s = document.createElement('script'); s.src = src; s.onload = ok;
+    s.onerror = () => erro(new Error('Sem internet para carregar o gerador. Tente de novo.')); document.head.appendChild(s); });
 }
-function imprimirDiario(d){
-  imprimir(`
-    <h1>Diário de Obra — ${esc(d.cliente_nome)}</h1>
-    <p><b>Data:</b> ${fmtData(d.data)} &nbsp; <b>Técnico(s):</b> ${esc(d.tecnicos_nomes)}<br>
-       <b>Horário:</b> ${hhmm(d.hora_inicio)} às ${hhmm(d.hora_fim)} &nbsp; <b>Intervalo:</b> ${d.intervalo_inicio ? `${hhmm(d.intervalo_inicio)} às ${hhmm(d.intervalo_fim)}` : '—'}<br>
-       <b>Horas:</b> ${fmtMin(d.minutos_trabalhados)} por técnico · ${fmtMin(d.homem_minutos)} homem-hora &nbsp; <b>KM:</b> ${fmtKm(d.km)} &nbsp; <b>Situação:</b> ${STATUS[d.status]}</p>
-    <h2>Serviço executado</h2><p style="white-space:pre-wrap">${esc(d.servico)}</p>
-    ${d.observacoes ? `<h2>Observações</h2><p style="white-space:pre-wrap">${esc(d.observacoes)}</p>` : ''}
-    ${d._materiais.length ? `<h2>Material utilizado</h2><table><tr><th>Qtd.</th><th>Un.</th><th>Descrição</th></tr>
-      ${d._materiais.map(m => `<tr><td>${Number(m.quantidade).toLocaleString('pt-BR')}</td><td>${esc(m.unidade)}</td><td>${esc(m.descricao)}</td></tr>`).join('')}</table>` : ''}
-    ${d._fotos.length ? `<h2>Fotos</h2><div class="pf">${d._fotos.map(x => `<img src="${esc(x.url)}">`).join('')}</div>` : ''}`);
+async function imagemJpeg(url, maxPx = 1600, qualidade = 0.85){
+  const blob = await (await fetch(url)).blob();
+  const bmp = await createImageBitmap(blob);
+  const k = Math.min(1, maxPx / Math.max(bmp.width, bmp.height));
+  const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width*k); cv.height = Math.round(bmp.height*k);
+  const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(bmp, 0, 0, cv.width, cv.height);
+  return { data: cv.toDataURL('image/jpeg', qualidade), w: cv.width, h: cv.height };
+}
+async function novoPdf(titulo){
+  await carregarScript(JSPDF_JS, () => window.jspdf);
+  await carregarScript(AUTOTABLE_JS, () => window.jspdf?.jsPDF?.API?.autoTable);
+  if (!S.timbrado) S.timbrado = (await imagemJpeg(TIMBRADO, 4000, 0.9)).data;
+  const doc = new window.jspdf.jsPDF({ unit:'mm', format:'a4', compress:true });
+  doc.setProperties({ title: pt(titulo), creator: '', producer: '' });
+  const comFundo = new Set();
+  const fundo = () => { const p = doc.internal.getCurrentPageInfo().pageNumber; if (comFundo.has(p)) return;
+    comFundo.add(p); doc.addImage(S.timbrado, 'JPEG', 0, 0, 210, 297, 'timbrado', 'FAST'); };
+  fundo();
+  const P = {
+    doc, y: PDF.top,
+    limite: 297 - PDF.bottom,
+    novaPagina(){ doc.addPage(); fundo(); this.y = PDF.top; },
+    garantir(h){ if (this.y + h > this.limite) this.novaPagina(); },
+    titulo(txt, sub){
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(...PDF.texto);
+      doc.text(pt(txt), PDF.left, this.y); this.y += 2.5;
+      doc.setDrawColor(...PDF.cor); doc.setLineWidth(0.8); doc.line(PDF.left, this.y, PDF.left + 22, this.y); this.y += 6;
+      if (sub) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+        for (const l of doc.splitTextToSize(pt(sub), PDF.larg)) { doc.text(l, PDF.left, this.y); this.y += 4.2; } this.y += 3; }
+    },
+    secao(txt){
+      this.garantir(14);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF.texto);
+      doc.text(pt(txt), PDF.left, this.y); this.y += 5;
+    },
+    paragrafo(txt){
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...PDF.texto);
+      for (const l of doc.splitTextToSize(pt(txt), PDF.larg)) { this.garantir(5); doc.text(l, PDF.left, this.y); this.y += 4.6; }
+      this.y += 4;
+    },
+    tabela(opts){
+      doc.autoTable({
+        startY: this.y, theme: 'plain', rowPageBreak: 'avoid',
+        margin: { top: PDF.top, bottom: PDF.bottom, left: PDF.left, right: PDF.right },
+        styles: { font:'helvetica', fontSize:8.5, cellPadding:{ top:1.6, bottom:1.6, left:1.8, right:1.8 }, textColor:PDF.texto, lineColor:[215,215,215], lineWidth:{ bottom:0.15 }, overflow:'linebreak' },
+        headStyles: { fillColor:[33,33,33], textColor:255, fontStyle:'bold', lineWidth:0 },
+        footStyles: { fillColor:[238,238,238], textColor:PDF.texto, fontStyle:'bold', lineWidth:0 },
+        willDrawPage: fundo,
+        ...opts,
+        body: opts.body.map(r => r.map(c => typeof c === 'object' && c !== null ? { ...c, content: pt(c.content) } : pt(c))),
+        head: opts.head?.map(r => r.map(c => typeof c === 'object' ? c : pt(c))),
+        foot: opts.foot?.map(r => r.map(c => typeof c === 'object' ? c : pt(c))),
+      });
+      this.y = doc.lastAutoTable.finalY + 8;
+    },
+    salvar(nome){ doc.save(`${nomeArquivo(nome)}.pdf`); },
+  };
+  return P;
+}
+const dir = { halign:'right' };
+
+async function pdfDiario(d){
+  toast('Gerando PDF…');
+  const P = await novoPdf(`Diário de Obra - ${d.cliente_nome}`);
+  P.titulo('Diário de Obra', `${d.cliente_nome}  ·  ${fmtData(d.data)}`);
+  P.tabela({
+    body: [
+      ['Cliente', d.cliente_nome, 'Data', fmtData(d.data)],
+      ['Técnico(s)', d.tecnicos_nomes || '-', 'KM rodados', kmPdf(d.km)],
+      ['Horário', `${hhmm(d.hora_inicio)} às ${hhmm(d.hora_fim)}`, 'Intervalo', d.intervalo_inicio ? `${hhmm(d.intervalo_inicio)} às ${hhmm(d.intervalo_fim)}` : 'Sem intervalo'],
+      ['Horas', `${fmtMin(d.minutos_trabalhados)} por técnico`, 'Homem-hora', fmtMin(d.homem_minutos)],
+    ],
+    columnStyles: { 0:{ fontStyle:'bold', textColor:[100,100,100], cellWidth:26 }, 1:{ cellWidth:61 }, 2:{ fontStyle:'bold', textColor:[100,100,100], cellWidth:26 } },
+    styles: { font:'helvetica', fontSize:9.5, cellPadding:2, textColor:PDF.texto, lineColor:[215,215,215], lineWidth:{ bottom:0.15 } },
+  });
+  P.secao('Serviço executado'); P.paragrafo(d.servico);
+  if (d.observacoes) { P.secao('Observações'); P.paragrafo(d.observacoes); }
+  if (d._materiais.length) {
+    P.secao('Material utilizado');
+    P.tabela({ head: [[{ content:'Qtd.', styles:dir }, 'Un.', 'Descrição']],
+      body: d._materiais.map(m => [{ content: Number(m.quantidade).toLocaleString('pt-BR'), styles:dir }, m.unidade, m.descricao]),
+      columnStyles: { 0:{ cellWidth:18 }, 1:{ cellWidth:14 } } });
+  }
+  if (d._fotos.length) {
+    P.secao('Fotos');
+    const col = 3, gap = 4, w = (PDF.larg - gap*(col-1)) / col, h = w * 0.75;
+    let i = 0;
+    for (const f of d._fotos) {
+      let img; try { img = await imagemJpeg(f.url, 1000, 0.8); } catch { continue; }
+      if (i % col === 0) { if (i) P.y += h + gap; P.garantir(h); }
+      const x = PDF.left + (i % col) * (w + gap);
+      // encaixa a foto no quadro sem distorcer
+      const k = Math.min(w / img.w, h / img.h), fw = img.w * k, fh = img.h * k;
+      P.doc.setFillColor(245, 245, 245); P.doc.rect(x, P.y, w, h, 'F');
+      P.doc.addImage(img.data, 'JPEG', x + (w - fw)/2, P.y + (h - fh)/2, fw, fh, undefined, 'FAST');
+      i++;
+    }
+  }
+  P.salvar(`Diario_${d.cliente_nome}_${fmtData(d.data)}`);
+}
+
+async function pdfRelatorio(rows, grupos, tot){
+  toast('Gerando PDF…');
+  const P = await novoPdf('Relatório de horas');
+  P.titulo('Relatório de horas', `${descreverFiltros()}\nEmitido em ${new Date().toLocaleString('pt-BR', { dateStyle:'short', timeStyle:'short' })}`);
+  P.secao('Resumo por cliente');
+  P.tabela({
+    head: [['Cliente', { content:'Diários', styles:dir }, { content:'Horas', styles:dir }, { content:'Homem-hora', styles:dir }, { content:'KM', styles:dir }]],
+    body: grupos.map(g => [g.nome, { content:String(g.n), styles:dir }, { content:fmtMin(g.min), styles:dir }, { content:fmtMin(g.hm), styles:dir }, { content:kmPdf(g.km || null), styles:dir }]),
+    foot: [['Total', { content:String(tot.n), styles:dir }, { content:fmtMin(tot.min), styles:dir }, { content:fmtMin(tot.hm), styles:dir }, { content:kmPdf(tot.km || null), styles:dir }]],
+  });
+  P.secao('Diários');
+  P.tabela({
+    head: [['Data', 'Cliente', 'Técnicos', 'Horário', { content:'Horas', styles:dir }, { content:'H-h', styles:dir }, { content:'KM', styles:dir }, 'Serviço']],
+    body: rows.map(d => [fmtData(d.data), d.cliente_nome, d.tecnicos_nomes || '-', `${hhmm(d.hora_inicio)}-${hhmm(d.hora_fim)}`,
+      { content:fmtMin(d.minutos_trabalhados), styles:dir }, { content:fmtMin(d.homem_minutos), styles:dir }, { content:kmPdf(d.km), styles:dir }, d.servico]),
+    styles: { font:'helvetica', fontSize:7.5, cellPadding:1.4, textColor:PDF.texto, lineColor:[215,215,215], lineWidth:{ bottom:0.15 }, overflow:'linebreak', valign:'top' },
+    columnStyles: { 0:{ cellWidth:16 }, 1:{ cellWidth:24 }, 2:{ cellWidth:24 }, 3:{ cellWidth:17 }, 4:{ cellWidth:11 }, 5:{ cellWidth:11 }, 6:{ cellWidth:13 } },
+  });
+  const cli = S.clientes.find(x => x.id == S.rel.cliente);
+  P.salvar(`Relatorio_horas_${cli ? cli.nome : 'todos'}_${fmtData(hoje())}`);
 }
 
 /* ================== RELATÓRIO ================== */
@@ -773,7 +879,7 @@ async function telaRelatorio(c){
       </table></div>
       <div class="acoes" style="margin-top:1rem">
         <button class="btn" id="xls">Exportar Excel</button>
-        <button class="btn" id="pdf">Gerar PDF</button>
+        <button class="btn" id="pdf">Baixar PDF</button>
         ${cobraveis.length ? `<button class="btn pri" id="cobrar">Marcar ${cobraveis.length} como cobrado${cobraveis.length > 1 ? 's' : ''}</button>` : ''}
       </div></div>
       <div class="card"><h3>Diários</h3><div class="tabela"><table class="larga">
@@ -783,7 +889,7 @@ async function telaRelatorio(c){
     $$('#res tr[data-id]').forEach(tr => tr.onclick = () => irPara('detalhe', +tr.dataset.id));
     if (!rows.length) return;
     $('#xls').onclick = () => exportarExcel(rows, grupos, tot).catch(falha);
-    $('#pdf').onclick = () => imprimirRelatorio(rows, grupos, tot);
+    $('#pdf').onclick = async ev => { ev.target.disabled = true; try { await pdfRelatorio(rows, grupos, tot); } catch (e) { falha(e); } ev.target.disabled = false; };
     const bc = $('#cobrar');
     if (bc) bc.onclick = async () => {
       if (!confirm(`Marcar ${cobraveis.length} diário(s) aprovado(s) como cobrado(s)?`)) return;
@@ -809,25 +915,9 @@ function descreverFiltros(){
     R.cobranca === 'a_cobrar' ? 'A cobrar' : R.cobranca === 'cobrado' ? 'Cobrados' : 'Cobrados e a cobrar',
     R.de || R.ate ? `Período: ${fmtData(R.de) || 'início'} a ${fmtData(R.ate) || 'hoje'}` : 'Todo o período'].join(' · ');
 }
-function imprimirRelatorio(rows, grupos, tot){
-  imprimir(`
-    <h1>Relatório de horas — Diário de Obra</h1>
-    <p>${esc(descreverFiltros())}<br>Emitido em ${new Date().toLocaleString('pt-BR')}</p>
-    <h2>Resumo por cliente</h2>
-    <table><tr><th>Cliente</th><th>Diários</th><th>Horas</th><th>Homem-hora</th><th>KM</th></tr>
-      ${grupos.map(g => `<tr><td>${esc(g.nome)}</td><td>${g.n}</td><td>${fmtMin(g.min)}</td><td>${fmtMin(g.hm)}</td><td>${fmtKm(g.km)}</td></tr>`).join('')}
-      <tr><td><b>Total</b></td><td><b>${tot.n}</b></td><td><b>${fmtMin(tot.min)}</b></td><td><b>${fmtMin(tot.hm)}</b></td><td><b>${fmtKm(tot.km)}</b></td></tr></table>
-    <h2>Diários</h2>
-    <table><tr><th>Data</th><th>Cliente</th><th>Técnicos</th><th>Horário</th><th>Horas</th><th>H-h</th><th>KM</th><th>Serviço</th></tr>
-      ${rows.map(d => `<tr><td>${fmtData(d.data)}</td><td>${esc(d.cliente_nome)}</td><td>${esc(d.tecnicos_nomes)}</td><td>${hhmm(d.hora_inicio)}–${hhmm(d.hora_fim)}</td><td>${fmtMin(d.minutos_trabalhados)}</td><td>${fmtMin(d.homem_minutos)}</td><td>${d.km != null ? fmtKm(d.km) : '—'}</td><td>${esc(d.servico)}</td></tr>`).join('')}</table>`);
-}
-async function carregarScript(src){
-  if (window.XLSX) return;
-  await new Promise((ok, erro) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => erro(new Error('Não foi possível carregar o gerador de Excel.')); document.head.appendChild(s); });
-}
 async function exportarExcel(rows, grupos, tot){
   toast('Gerando planilha…');
-  await carregarScript(XLSX_JS);
+  await carregarScript(XLSX_JS, () => window.XLSX);
   const mats = [];
   const ids = rows.map(d => d.id);
   for (let i = 0; i < ids.length; i += 200) mats.push(...await q(sb.from('materiais').select('*').in('diario_id', ids.slice(i, i+200)).order('diario_id')));
